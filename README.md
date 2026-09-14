@@ -245,6 +245,28 @@ Everything except the GTK window runs headless, which is why the visual
 behaviour is covered by ordinary unit tests. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the layout.
 
+## Prior art
+
+The idea is Apple's. Several people have implemented it since, and one of them
+targets Linux — worth knowing about before you pick:
+
+| Project | Platform | Notes |
+| --- | --- | --- |
+| [Mewtion](https://github.com/aayuxh-vim/Mewtion) | Linux (Wayland only) | Rust + GTK4 layer-shell. Takes motion from an Android phone over USB/ADB, which gives it gyroscope-fused linear acceleration — better than what an accelerometer alone can do. No X11 or GNOME support, and no multi-monitor at the time of writing. |
+| [Vehicle Motion Cues](https://f-droid.org/en/packages/dev.davidv.motionsickness/) | Android | Open source, on F-Droid. If the screen you use in the car is a phone, use this rather than anything here. |
+| Apple's Vehicle Motion Cues | iOS, iPadOS | The original, built into the OS. |
+
+Where motionless differs: it runs on X11 and through XWayland as well as
+layer-shell, which is what makes it usable on GNOME — the default on most
+Linux desktops — and it takes motion over plain UDP from anything that can
+send it, rather than requiring a cable. It also covers every monitor.
+
+Where it is behind: gravity is removed with a low-pass filter over raw
+acceleration, so a very long constant-radius bend fades (see
+[How it works](#how-it-works)). A phone reporting gyroscope-fused linear
+acceleration does not have that problem — if your sender already removes
+gravity, the remaining high-pass here is doing you no favours.
+
 ## Contributing
 
 Bug reports, tuning notes and compositor compatibility reports are all welcome

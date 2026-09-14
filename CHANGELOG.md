@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+- Added a Prior art section. An earlier draft claimed there was no Linux
+  equivalent; [Mewtion](https://github.com/aayuxh-vim/Mewtion) exists and
+  predates this, and the section now says where each is stronger.
+
 ## [0.1.0] - 2026-09-14
 
 First release.
