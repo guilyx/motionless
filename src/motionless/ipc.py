@@ -30,6 +30,11 @@ MAX_MESSAGE_BYTES = 64 * 1024
 #: Seconds a CLI call waits for the daemon to answer.
 DEFAULT_TIMEOUT = 3.0
 
+#: Commands the daemon answers only after real work, and how long to allow.
+#: Giving up early is worse than waiting: the daemon still applies the change,
+#: so a timeout reports a failure for something that in fact succeeded.
+SLOW_COMMANDS = {"reload": 30.0}
+
 #: Dispatches a command name plus arguments and returns the response payload.
 CommandHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
 
@@ -88,6 +93,7 @@ def request(
     :class:`RuntimeError` if the daemon reports a failure.
     """
     target = path or socket_file()
+    timeout = max(timeout, SLOW_COMMANDS.get(command, 0.0))
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connection.settimeout(timeout)
     try:

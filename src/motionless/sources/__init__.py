@@ -6,15 +6,20 @@ from motionless.config import MotionConfig
 from motionless.sources.base import Availability, MotionSource, SampleCallback
 from motionless.sources.demo import DemoSource
 from motionless.sources.iio import IioSource
+from motionless.sources.null import NullSource
 from motionless.sources.udp import UdpSource
 
 #: Every source that can be named in configuration, in registry order.
-SOURCES: tuple[type[MotionSource], ...] = (IioSource, UdpSource, DemoSource)
+SOURCES: tuple[type[MotionSource], ...] = (IioSource, UdpSource, DemoSource, NullSource)
 
-#: Order tried by ``source = "auto"``. ``udp`` is excluded on purpose: it is
-#: always "available" but does nothing without a sender, so choosing it
-#: automatically would look like a silent failure.
-AUTO_ORDER: tuple[type[MotionSource], ...] = (IioSource, DemoSource)
+#: Order tried by ``source = "auto"``.
+#:
+#: ``udp`` is excluded because it is always "available" but does nothing
+#: without a sender. ``demo`` is excluded for a more important reason: it
+#: replays a *synthetic* drive, and cues that disagree with the vehicle you are
+#: actually in are worse than no cues at all. Auto-detection that cannot find a
+#: real sensor says so instead of inventing motion.
+AUTO_ORDER: tuple[type[MotionSource], ...] = (IioSource,)
 
 
 class UnknownSourceError(ValueError):
@@ -40,15 +45,15 @@ def probe_all() -> dict[str, Availability]:
 
 
 def detect() -> type[MotionSource]:
-    """Pick the best source for this machine.
+    """Pick the best real source for this machine.
 
-    Falls back to the demo source, which always works — an overlay that
-    visibly does something is easier to debug than one that silently does not.
+    Returns :class:`NullSource` when there is no real sensor, rather than
+    substituting synthetic motion. See :data:`AUTO_ORDER`.
     """
     for source in AUTO_ORDER:
         if source.probe():
             return source
-    return DemoSource
+    return NullSource
 
 
 def build(config: MotionConfig, on_sample: SampleCallback) -> MotionSource:
@@ -70,6 +75,7 @@ __all__ = [
     "DemoSource",
     "IioSource",
     "MotionSource",
+    "NullSource",
     "UdpSource",
     "UnknownSourceError",
     "build",

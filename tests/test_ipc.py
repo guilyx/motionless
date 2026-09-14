@@ -143,6 +143,37 @@ class TestRequest:
         assert is_running(server.path)
 
 
+class TestSlowCommands:
+    def test_reload_is_allowed_longer_than_the_default(self) -> None:
+        from motionless.ipc import DEFAULT_TIMEOUT, SLOW_COMMANDS
+
+        # reload rebuilds overlay state. Giving up at the default made the CLI
+        # report a failure for a change the daemon had actually applied, and
+        # the raised error then skipped whatever the caller did next.
+        assert SLOW_COMMANDS["reload"] > DEFAULT_TIMEOUT
+
+    def test_a_slow_command_is_not_cut_short_by_the_default(self, tmp_path: Path) -> None:
+        import time
+
+        def slow(command: str, _args: dict[str, Any]) -> dict[str, Any]:
+            if command == "reload":
+                time.sleep(DEFAULT_TIMEOUT + 1.5)
+            return {"reloaded": True}
+
+        from motionless.ipc import DEFAULT_TIMEOUT
+
+        with Harness(tmp_path / "s.sock", slow) as harness:
+            started = time.monotonic()
+            assert request("reload", path=harness.path) == {"reloaded": True}
+            assert time.monotonic() - started > DEFAULT_TIMEOUT
+
+    def test_other_commands_keep_the_short_timeout(self) -> None:
+        from motionless.ipc import SLOW_COMMANDS
+
+        assert "status" not in SLOW_COMMANDS
+        assert "quit" not in SLOW_COMMANDS
+
+
 class TestBinding:
     def test_bind_creates_the_socket_owner_only(self, tmp_path: Path) -> None:
         with Harness(tmp_path / "nested" / "control.sock", lambda c, a: {}) as harness:

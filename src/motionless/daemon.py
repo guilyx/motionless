@@ -143,7 +143,15 @@ class Daemon:
                 GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, self._on_signal)
 
             self._source.start()
-            log.info("motion source: %s", self._source.name)
+            if self._source.name == "none":
+                log.warning(
+                    "no motion source: this machine has no accelerometer under "
+                    "/sys/bus/iio, so there is nothing to react to and no cues "
+                    "will appear. Run `motionless sources`; the usual answer is "
+                    'to stream from a phone with `motion.source = "udp"`.'
+                )
+            else:
+                log.info("motion source: %s", self._source.name)
             self._overlay.start(visible=self._initial_visible)
             log.info(
                 "overlay ready on %d monitor(s), cues %s",
@@ -197,8 +205,12 @@ class Daemon:
         if command == "reload":
             return self.reload()
         if command == "quit":
-            # Defer so the reply reaches the client before the loop ends.
-            self._glib.idle_add(self.quit)
+            # Defer so the reply reaches the client before the loop ends, but
+            # at high priority: the overlay's redraw is a PRIORITY_DEFAULT
+            # timeout, and a default-idle callback sits *below* that. On a
+            # machine slow enough for drawing to saturate the loop, the quit
+            # would be starved indefinitely and `motionless stop` would hang.
+            self._glib.idle_add(self.quit, priority=self._glib.PRIORITY_HIGH)
             return {"stopping": True}
         raise ValueError(f"unhandled command {command!r}")  # pragma: no cover
 

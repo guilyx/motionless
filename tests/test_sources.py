@@ -55,13 +55,49 @@ class TestRegistry:
     def test_probe_covers_every_source(self) -> None:
         assert set(probe_all()) == set(source_names())
 
+    def test_demo_is_never_auto_selected(self) -> None:
+        # Synthetic cues that disagree with the vehicle you are actually in are
+        # a worse sensory mismatch than no cues, which is the thing that makes
+        # people ill. Auto must never substitute them for a real sensor.
+        from motionless.sources import DemoSource as _Demo
+
+        assert _Demo not in AUTO_ORDER
+
+    def test_auto_reports_no_source_rather_than_inventing_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from motionless.sources import NullSource
+        from motionless.sources.base import Availability as _A
+
+        monkeypatch.setattr(IioSource, "probe", classmethod(lambda cls, *a: _A.no("none")))
+        assert detect() is NullSource
+        source = build(MotionConfig(source="auto"), lambda _s: None)
+        assert isinstance(source, NullSource)
+        assert source.name == "none"
+
+    def test_null_source_emits_nothing_and_stops_promptly(self) -> None:
+        from motionless.sources import NullSource
+
+        received: list[MotionSample] = []
+        source = NullSource(received.append)
+        source.start()
+        time.sleep(0.3)
+        started = time.monotonic()
+        source.stop()
+        assert received == []
+        assert source.error is None
+        assert time.monotonic() - started < 2.0
+
     def test_udp_is_not_auto_selected(self) -> None:
         # It reports itself available but does nothing without a sender, so
         # auto-selecting it would look like a silent failure.
         assert UdpSource not in AUTO_ORDER
 
-    def test_detect_always_returns_something_usable(self) -> None:
-        assert detect() in AUTO_ORDER
+    def test_detect_returns_a_real_source_or_an_explicit_none(self) -> None:
+        from motionless.sources import NullSource
+
+        # Never an arbitrary third thing, and never the synthetic drive loop.
+        assert detect() in (*AUTO_ORDER, NullSource)
 
     def test_build_honours_an_explicit_choice(self) -> None:
         source = build(

@@ -103,9 +103,26 @@ class TestCheckConfig:
 
 
 class TestOther:
-    def test_sources_are_all_reported(self) -> None:
+    def test_real_sources_are_reported_and_the_choice_is_named(self) -> None:
         names = {c.name for c in check_sources()}
-        assert names == {"Source: iio", "Source: udp", "Source: demo"}
+        assert {"Source: iio", "Source: udp", "Source: demo"} <= names
+        # "none" is an internal placeholder, not something to offer a user.
+        assert "Source: none" not in names
+        assert "Auto-detected source" in names
+
+    def test_no_accelerometer_is_surfaced_as_a_warning_with_a_way_out(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from motionless.sources import IioSource
+        from motionless.sources.base import Availability
+
+        monkeypatch.setattr(
+            IioSource, "probe", classmethod(lambda cls, *a: Availability.no("none here"))
+        )
+        chosen = next(c for c in check_sources() if c.name == "Auto-detected source")
+        assert chosen.level is Level.WARN
+        assert "no cues will appear" in chosen.detail
+        assert "udp" in chosen.hint
 
     def test_a_stopped_daemon_is_a_warning_not_a_failure(self) -> None:
         check = check_daemon()[0]

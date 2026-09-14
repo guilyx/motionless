@@ -123,12 +123,21 @@ Run `motionless sources` to see which of these your machine can use.
 
 | Source | Works when | Notes |
 | --- | --- | --- |
-| `iio` | Your device has an accelerometer | Most convertibles, tablets and some laptops. Read straight from `/sys/bus/iio`. |
+| `iio` | Your device has an accelerometer | Convertibles, tablets, and laptops with screen-rotation or drive-protection sensors. Read straight from `/sys/bus/iio`. |
 | `udp` | You stream readings from a phone | A phone in the car's cradle is a *better* motion sensor than a laptop on your knees. |
-| `demo` | Always | Synthetic drive loop, for previewing and tuning. |
+| `demo` | Always | Synthetic drive loop, for previewing and tuning **only**. |
 
-`motion.source = "auto"` (the default) picks `iio` when an accelerometer
-exists and falls back to `demo`.
+`motion.source = "auto"` (the default) uses `iio` when this machine has an
+accelerometer. When it does not, it reports **no source** and draws nothing.
+
+That is deliberate. `demo` replays a scripted drive, and cues that disagree
+with the vehicle you are actually in are a worse sensory mismatch than no cues
+— which is the thing that makes people ill in the first place. Auto-detection
+will not quietly substitute invented motion for a missing sensor. Run
+`motionless doctor`: it names the source it chose, and says what to do when
+there is none.
+
+Most laptops have no accelerometer. If yours does not, use your phone.
 
 <details>
 <summary>Using your phone as the sensor</summary>
