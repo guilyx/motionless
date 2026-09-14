@@ -16,6 +16,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   there is none.
 
 ### Fixed
+- `motionless stop` could hang and leave the daemon running. The quit was
+  scheduled with `GLib.idle_add`, which runs at `PRIORITY_DEFAULT_IDLE` —
+  below the overlay's `PRIORITY_DEFAULT` redraw timer. On a machine slow
+  enough for drawing to saturate the main loop, the quit was starved
+  indefinitely. It is now scheduled at `PRIORITY_HIGH`. Found when a loaded
+  CI runner, which took eleven seconds just to open the overlay, hit exactly
+  this.
 - The installer asked pip to install `motionless-overlay` before checking
   whether it exists, so every run printed pipx's "Fatal error from pip
   prevented installation" before falling back to the repository and

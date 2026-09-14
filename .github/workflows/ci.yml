@@ -129,10 +129,16 @@ jobs:
               ipc.request("quit")
           finally:
               try:
-                  daemon.wait(timeout=10)
+                  # Generous: a contended runner has taken over ten seconds
+                  # just to open the overlay, and a shutdown that is merely
+                  # slow should not read as one that is stuck.
+                  daemon.wait(timeout=45)
               except subprocess.TimeoutExpired:
                   daemon.kill()
-                  raise SystemExit("daemon did not stop on request") from None
+                  raise SystemExit(
+                      "daemon did not stop within 45s of `quit` — the reply was "
+                      "sent, so the main loop did not act on it"
+                  ) from None
           assert daemon.returncode == 0, f"daemon exited {daemon.returncode}"
           print("smoke test passed")
           PY
