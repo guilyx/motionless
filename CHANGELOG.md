@@ -6,7 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `motion.source = "auto"` no longer falls back to the synthetic `demo` source
+  when no accelerometer is present. It reports no source and draws nothing
+  instead. Cues that disagree with the vehicle you are in are a worse sensory
+  mismatch than no cues, so inventing motion to fill a missing sensor works
+  against the point of the program. `demo` remains available explicitly.
+  `doctor` now names the auto-detected source and explains what to do when
+  there is none.
+
 ### Fixed
+- The installer asked pip to install `motionless-overlay` before checking
+  whether it exists, so every run printed pipx's "Fatal error from pip
+  prevented installation" before falling back to the repository and
+  succeeding. It now asks PyPI first and goes straight to the repository,
+  silently, while the package is unpublished.
 - The installer looked frozen at `[sudo] password for ...` when run through
   `curl | bash`. It now explains that sudo will ask, and that nothing is
   echoed while you type, before the prompt appears rather than after.

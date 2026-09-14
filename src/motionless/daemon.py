@@ -143,7 +143,15 @@ class Daemon:
                 GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, self._on_signal)
 
             self._source.start()
-            log.info("motion source: %s", self._source.name)
+            if self._source.name == "none":
+                log.warning(
+                    "no motion source: this machine has no accelerometer under "
+                    "/sys/bus/iio, so there is nothing to react to and no cues "
+                    "will appear. Run `motionless sources`; the usual answer is "
+                    'to stream from a phone with `motion.source = "udp"`.'
+                )
+            else:
+                log.info("motion source: %s", self._source.name)
             self._overlay.start(visible=self._initial_visible)
             log.info(
                 "overlay ready on %d monitor(s), cues %s",

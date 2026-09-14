@@ -8,7 +8,7 @@
 # download is cut short, nothing runs at all rather than running half a script.
 #
 # Environment overrides:
-#   MOTIONLESS_SOURCE=pypi|git   where to install from (default: pypi, git fallback)
+#   MOTIONLESS_SOURCE=auto|pypi|git  where to install from (default: auto)
 #   MOTIONLESS_REF=<branch|tag>  git ref when installing from git (default: main)
 #   MOTIONLESS_SKIP_DEPS=1       do not touch the system package manager
 #   MOTIONLESS_YES=1             never prompt (implied when stdin is not a terminal)
@@ -212,6 +212,19 @@ venv_install() {
   ln -sf "$venv/bin/motionless" "$HOME/.local/bin/motionless"
 }
 
+# Is the package published? Cheap GET against the JSON API, so we never hand
+# pip a name it cannot resolve just to discover it does not exist yet.
+pypi_has_package() {
+  local name="$1"
+  if has curl; then
+    curl -fsS --max-time 10 -o /dev/null "https://pypi.org/pypi/$name/json" 2>/dev/null
+  elif has wget; then
+    wget -q --timeout=10 -O /dev/null "https://pypi.org/pypi/$name/json" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
 install_target() {
   case "${MOTIONLESS_SOURCE:-pypi}" in
     git) printf 'git+%s@%s' "$REPO_URL" "${MOTIONLESS_REF:-main}" ;;
@@ -220,19 +233,28 @@ install_target() {
 }
 
 install_package() {
-  local target
-  target="$(install_target)"
-  info "Installing $target"
-
   local installer=venv_install
   if has pipx; then installer=pipx_install; fi
 
+  # "auto" asks PyPI whether the package exists yet; git and pypi force it.
+  local source="${MOTIONLESS_SOURCE:-auto}"
+  if [ "$source" = "auto" ]; then
+    if pypi_has_package "$PACKAGE"; then
+      source=pypi
+    else
+      info "not published to PyPI yet; installing from the git repository"
+      source=git
+    fi
+  fi
+
+  local target
+  target="$(MOTIONLESS_SOURCE="$source" install_target)"
+  info "Installing $target"
+
   if ! "$installer" "$target"; then
-    if [ "${MOTIONLESS_SOURCE:-pypi}" = "pypi" ]; then
-      # Expected until the first release is published; not a failure.
-      info "not available on PyPI yet; installing from the git repository"
-      MOTIONLESS_SOURCE=git
-      "$installer" "$(install_target)" || die "installation failed"
+    if [ "$source" = "pypi" ]; then
+      warn "install from PyPI failed; falling back to the git repository"
+      "$installer" "$(MOTIONLESS_SOURCE=git install_target)" || die "installation failed"
     else
       die "installation failed"
     fi
