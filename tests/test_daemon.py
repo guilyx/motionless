@@ -105,6 +105,32 @@ class TestStatus:
         assert daemon.status()["source_error"] is None
 
 
+class TestQuit:
+    def test_quit_is_scheduled_above_the_redraw_timer(self) -> None:
+        # The overlay redraws on a PRIORITY_DEFAULT timeout. A quit scheduled
+        # at the default idle priority sits below it, so on a machine slow
+        # enough for drawing to saturate the main loop the daemon never stops.
+        scheduled: list[tuple[object, object]] = []
+
+        class FakeGLib:
+            PRIORITY_HIGH = -100
+            PRIORITY_DEFAULT = 0
+            PRIORITY_DEFAULT_IDLE = 200
+
+            @staticmethod
+            def idle_add(callback: object, *, priority: object = 200) -> int:
+                scheduled.append((callback, priority))
+                return 1
+
+        daemon = make_daemon()
+        daemon._glib = FakeGLib()
+        assert daemon._handle_command("quit", {}) == {"stopping": True}
+        assert len(scheduled) == 1
+        _callback, priority = scheduled[0]
+        assert priority == FakeGLib.PRIORITY_HIGH
+        assert priority < FakeGLib.PRIORITY_DEFAULT
+
+
 class TestInitialVisibility:
     def test_defaults_to_visible(self) -> None:
         assert make_daemon()._initial_visible is True

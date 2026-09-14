@@ -153,10 +153,29 @@ def check_display() -> list[Check]:
 
 
 def check_sources() -> list[Check]:
+    from motionless.sources import detect
+
     checks = []
     for name, availability in probe_all().items():
+        if name == "none":
+            continue
         level = Level.OK if availability.available else Level.WARN
         checks.append(Check(f"Source: {name}", level, availability.detail or "-"))
+
+    chosen = detect()
+    if chosen.name == "none":
+        checks.append(
+            Check(
+                "Auto-detected source",
+                Level.WARN,
+                "none — no accelerometer on this machine, so no cues will appear",
+                "stream from a phone: `motionless config set motion.source udp` "
+                "(see the README), or preview the look with "
+                "`motionless run --source demo`",
+            )
+        )
+    else:
+        checks.append(Check("Auto-detected source", Level.OK, chosen.name))
     return checks
 
 

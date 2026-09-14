@@ -126,13 +126,24 @@ jobs:
               assert ipc.request("toggle")["visible"] is False
               assert ipc.request("toggle")["visible"] is True
               ipc.request("reload")
+
+              # Send quit even if something above raised, so a failure earlier
+              # in the script cannot leave the daemon running and disguise
+              # itself as a shutdown that hung.
               ipc.request("quit")
           finally:
               try:
-                  daemon.wait(timeout=10)
+                  # Generous: a contended runner has taken over ten seconds
+                  # just to open the overlay, and a shutdown that is merely
+                  # slow should not read as one that is stuck.
+                  daemon.wait(timeout=45)
               except subprocess.TimeoutExpired:
                   daemon.kill()
-                  raise SystemExit("daemon did not stop on request") from None
+                  raise SystemExit(
+                      "daemon still running 45s after the script finished. If an "
+                      "error appears above, `quit` was never sent and that error "
+                      "is the real failure; otherwise the main loop ignored it."
+                  ) from None
           assert daemon.returncode == 0, f"daemon exited {daemon.returncode}"
           print("smoke test passed")
           PY

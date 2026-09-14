@@ -172,7 +172,7 @@ class Overlay:
             fade_out=config.overlay.fade_out,
             always_on=config.overlay.always_on,
         )
-        self._monitor_handler: int | None = None
+        self._monitor_handlers: list[int] = []
 
     # ------------------------------------------------------------- lifecycle
 
@@ -188,13 +188,20 @@ class Overlay:
         self._build_windows()
         display = Gdk.Display.get_default()
         if display is not None:
-            self._monitor_handler = display.connect("monitor-added", self._on_monitors_changed)
-            display.connect("monitor-removed", self._on_monitors_changed)
+            self._monitor_handlers = [
+                display.connect("monitor-added", self._on_monitors_changed),
+                display.connect("monitor-removed", self._on_monitors_changed),
+            ]
         if visible:
             self.show()
 
     def stop(self) -> None:
         self._stop_timer()
+        display = Gdk.Display.get_default()
+        if display is not None:
+            for handler in self._monitor_handlers:
+                display.disconnect(handler)
+        self._monitor_handlers = []
         for window, _ in self._windows:
             window.destroy()
         self._windows = []
@@ -229,8 +236,16 @@ class Overlay:
         return self._visible
 
     def reload(self, config: Config) -> None:
-        """Apply a new configuration, rebuilding windows if layout changed."""
-        was_visible = self._visible
+        """Apply a new configuration.
+
+        Only a change of *which monitors* to cover needs the windows torn down
+        and rebuilt. Everything else — colour, spacing, sensitivity, frame rate
+        — is a matter of restyling the windows that already exist. Rebuilding
+        regardless made reload slow enough on a loaded machine to exceed the
+        control socket's timeout, so `motionless config set` reported a failure
+        for a change the daemon had in fact applied.
+        """
+        previous = self._config
         self._config = config
         self._style = render.Style.from_config(config.overlay, clamp=config.motion.clamp)
         self._animator = render.CueAnimator(
@@ -239,8 +254,20 @@ class Overlay:
             fade_out=config.overlay.fade_out,
             always_on=config.overlay.always_on,
         )
-        self.stop()
-        self.start(visible=was_visible)
+
+        if config.overlay.monitors != previous.overlay.monitors:
+            was_visible = self._visible
+            self.stop()
+            self.start(visible=was_visible)
+            return
+
+        # Same windows, new resting positions.
+        self._windows = [
+            (window, render.anchors(*window.logical_size, self._style))
+            for window, _ in self._windows
+        ]
+        if self._visible:
+            self._start_timer(config.overlay.fps)
 
     # --------------------------------------------------------------- windows
 
