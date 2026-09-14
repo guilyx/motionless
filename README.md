@@ -46,6 +46,16 @@ pacman or zypper), installs motionless into its own isolated environment with
 `pipx`, and runs a diagnostic. Read it first if you'd rather — it is one file,
 and `--no-deps` skips the package-manager step.
 
+Installing the system packages needs root, so **sudo will ask for your
+password**. Nothing is echoed as you type: it has not frozen. If you would
+rather see the script before running it, or keep the terminal fully
+interactive, download it first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/guilyx/motionless/main/install.sh -o install.sh
+less install.sh && bash install.sh
+```
+
 <details>
 <summary>Other ways to install</summary>
 

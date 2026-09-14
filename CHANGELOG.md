@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- The installer looked frozen at `[sudo] password for ...` when run through
+  `curl | bash`. It now explains that sudo will ask, and that nothing is
+  echoed while you type, before the prompt appears rather than after.
+- `apt-get` ran with `-qq` and inherited the curl pipe as its standard input,
+  so a long silent stretch followed the password and anything that tried to
+  prompt — `needrestart` on Ubuntu 22.04 and later opens a dialog mid-install
+  — could block forever. Package managers now report progress, read from
+  `/dev/null`, and run with `DEBIAN_FRONTEND=noninteractive` and
+  `NEEDRESTART_MODE=a`.
+
 ### Documentation
 - Install instructions no longer tell you to `pipx install motionless-overlay`.
   Nothing has been published to PyPI, so that command fails; installing from
