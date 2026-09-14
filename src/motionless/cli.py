@@ -174,19 +174,31 @@ def build_parser() -> argparse.ArgumentParser:
 # ------------------------------------------------------------------- commands
 
 
-def _load_config(args: argparse.Namespace) -> Config:
-    config = Config.load(args.config)
+def _overrides(args: argparse.Namespace) -> dict[str, str]:
+    """Settings the command line overrides, as dotted key to raw value.
+
+    Kept as data rather than applied in place so the daemon can re-apply them
+    after a reload re-reads the configuration file.
+    """
+    out: dict[str, str] = {}
     source = getattr(args, "source", None)
     if source:
-        config.motion.source = source
         if source != "auto":
             from motionless.sources import get_source_class
 
             get_source_class(source)
+        out["motion.source"] = source
     if getattr(args, "hidden", False):
-        config.start_hidden = True
+        out["start_hidden"] = "true"
     if getattr(args, "always_on", False):
-        config.overlay.always_on = True
+        out["overlay.always_on"] = "true"
+    return out
+
+
+def _load_config(args: argparse.Namespace) -> Config:
+    config = Config.load(args.config)
+    for key, value in _overrides(args).items():
+        config.set(key, value)
     return config.validate()
 
 
@@ -195,7 +207,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     configure_logging(args.verbose)
     config = _load_config(args)
-    return Daemon(config, config_path=args.config).run()
+    return Daemon(config, config_path=args.config, overrides=_overrides(args)).run()
 
 
 def _child_command(args: argparse.Namespace) -> list[str]:

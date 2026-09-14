@@ -71,18 +71,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # Deliberately no actions/setup-python here. PyGObject comes from apt and
+      # is built for the runner's *system* interpreter; a venv built on any
+      # other Python cannot see /usr/lib/python3/dist-packages and `import gi`
+      # fails. This is the same mismatch `motionless doctor` reports.
       - name: Install GTK 3 bindings and a virtual display
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            python3-gi python3-gi-cairo gir1.2-gtk-3.0 xvfb
-      - name: Install into a venv that can see the system GTK bindings
+            python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-venv xvfb
+      - name: Install into a venv built on the system interpreter
         run: |
-          python3 -m venv --system-site-packages .venv
+          /usr/bin/python3 -m venv --system-site-packages .venv
           .venv/bin/pip install --quiet -e .
+      - name: Verify the bindings really import
+        # A separate step so this failure mode is unmistakable rather than
+        # surfacing three steps later as "daemon exited early".
+        run: |
+          .venv/bin/python - <<'PY'
+          import gi
+          gi.require_version("Gtk", "3.0")
+          from gi.repository import Gtk
+          print(f"GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}")
+          PY
       - name: Start the daemon against a virtual display and drive it
         env:
           XDG_SESSION_TYPE: x11

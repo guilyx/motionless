@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 
@@ -117,6 +118,59 @@ class TestInitialVisibility:
         config = Config()
         config.start_hidden = True
         assert Daemon(config, visible=True)._initial_visible is True
+
+
+class TestReloadOverrides:
+    def test_reload_keeps_command_line_overrides(self, tmp_path: Path) -> None:
+        # The config file says one source, the command line another. Reload
+        # re-reads the file, and must not quietly undo the flag the daemon was
+        # started with.
+        path = tmp_path / "config.toml"
+        config = Config()
+        config.motion.source = "iio"
+        config.save(path)
+
+        started = Config.load(path)
+        started.motion.source = "demo"
+        daemon = Daemon(started, config_path=path, overrides={"motion.source": "demo"})
+        daemon._overlay = _StubOverlay()
+        assert daemon.reload()["source"] == "demo"
+        assert daemon.config.motion.source == "demo"
+
+    def test_reload_picks_up_settings_the_command_line_did_not_override(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "config.toml"
+        Config().save(path)
+        daemon = Daemon(Config.load(path), config_path=path, overrides={"motion.source": "demo"})
+        daemon._overlay = _StubOverlay()
+
+        changed = Config.load(path)
+        changed.overlay.opacity = 0.2
+        changed.save(path)
+        daemon.reload()
+        assert daemon.config.overlay.opacity == 0.2
+        assert daemon.config.motion.source == "demo"
+
+    def test_without_overrides_the_file_wins(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.toml"
+        config = Config()
+        config.overlay.opacity = 0.25
+        config.save(path)
+        daemon = Daemon(Config(), config_path=path)
+        daemon._overlay = _StubOverlay()
+        daemon.reload()
+        assert daemon.config.overlay.opacity == 0.25
+
+
+class _StubOverlay:
+    """Stands in for the GTK overlay, which needs a display."""
+
+    visible = False
+    monitor_count = 0
+
+    def reload(self, _config: Config) -> None:
+        return None
 
 
 def test_a_headless_environment_refuses_to_run_rather_than_crashing(

@@ -12,6 +12,7 @@ from motionless import cli
 from motionless.config import Config
 from motionless.ipc import DaemonUnavailableError
 from motionless.paths import config_file
+from motionless.sources import UnknownSourceError
 
 
 @pytest.fixture
@@ -294,6 +295,25 @@ class TestStartCommand:
             "--always-on",
         ):
             assert flag in command
+
+    def test_overrides_are_collected_for_the_daemon_to_re_apply(self) -> None:
+        parser = cli.build_parser()
+        args = parser.parse_args(["run", "-s", "demo", "--hidden", "--always-on"])
+        assert cli._overrides(args) == {
+            "motion.source": "demo",
+            "start_hidden": "true",
+            "overlay.always_on": "true",
+        }
+
+    def test_no_flags_means_no_overrides(self) -> None:
+        parser = cli.build_parser()
+        assert cli._overrides(parser.parse_args(["run"])) == {}
+
+    def test_overrides_are_validated_when_collected(self) -> None:
+        parser = cli.build_parser()
+        args = parser.parse_args(["run", "-s", "telepathy"])
+        with pytest.raises(UnknownSourceError):
+            cli._overrides(args)
 
     def test_an_unknown_source_is_rejected_before_starting(
         self, no_daemon: None, capsys: pytest.CaptureFixture[str]

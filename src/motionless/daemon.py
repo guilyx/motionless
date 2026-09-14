@@ -57,9 +57,14 @@ class Daemon:
         *,
         visible: bool | None = None,
         config_path: Path | None = None,
+        overrides: dict[str, str] | None = None,
     ) -> None:
         self.config = config
         self.config_path = config_path
+        #: Command-line settings, as dotted key to raw value. Re-applied on
+        #: every reload so `--source udp` is not quietly lost the first time
+        #: the configuration file is re-read.
+        self.overrides = dict(overrides or {})
         self.plan = backend_module.plan_backend()
         self._samples: collections.deque[MotionSample] = collections.deque(maxlen=SAMPLE_BUFFER)
         self._lock = threading.Lock()
@@ -117,7 +122,12 @@ class Daemon:
             log.warning("%s", caveat)
 
         # Imported here, never at module scope: GDK reads GDK_BACKEND when it
-        # is imported, so the plan has to be applied first.
+        # is imported, so the plan has to be applied first. Pin the version
+        # before the import — a machine with the GTK 4 typelib installed would
+        # otherwise load that one and fail later, inside the overlay.
+        import gi
+
+        gi.require_version("Gtk", "3.0")
         from gi.repository import GLib, Gtk
 
         from motionless.overlay.window import Overlay
@@ -193,8 +203,14 @@ class Daemon:
         raise ValueError(f"unhandled command {command!r}")  # pragma: no cover
 
     def reload(self) -> dict[str, Any]:
-        """Re-read the configuration file and restart the source and overlay."""
+        """Re-read the configuration file and restart the source and overlay.
+
+        Command-line overrides are re-applied on top, so a reload never
+        silently undoes the flags the daemon was started with.
+        """
         config = Config.load(self.config_path)
+        for key, value in self.overrides.items():
+            config.set(key, value)
         restart_source = config.motion != self.config.motion
         self.config = config
         self._processor = self._build_processor(config)
