@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=motionless
+GenericName=Vehicle Motion Cues
+Comment=Reduce motion sickness when using a screen in a moving vehicle
+Exec=motionless run
+TryExec=motionless
+Icon=preferences-desktop-accessibility
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=motion;sickness;vehicle;car;overlay;accessibility;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

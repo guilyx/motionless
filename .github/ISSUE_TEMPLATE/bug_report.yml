@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work the way it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The output of `motionless doctor` answers most
+        of the questions we would otherwise have to ask.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. motionless start
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`motionless doctor` output"
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and desktop
+      placeholder: Ubuntu 24.04, GNOME 46, Wayland
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: From `~/.local/state/motionless/motionless.log`
+      render: text

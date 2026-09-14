@@ -1,0 +1,38 @@
+name: Compatibility report
+description: Tell us how the overlay behaves on your desktop
+labels: [compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Overlay behaviour varies a lot between compositors. These reports are
+        the most useful thing you can send, whether it worked or not.
+  - type: dropdown
+    id: result
+    attributes:
+      label: Did it work?
+      options:
+        - Yes, fully
+        - Partly
+        - No
+    validations:
+      required: true
+  - type: input
+    id: compositor
+    attributes:
+      label: Compositor and version
+      placeholder: Hyprland 0.41, sway 1.9, KWin 6.1, Mutter 46
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What worked and what did not
+      description: Stacking above other windows, click-through, transparency, multi-monitor.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`motionless doctor` output"
+      render: text

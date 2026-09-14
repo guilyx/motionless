@@ -1,0 +1,129 @@
+"""Daemon wiring that does not need a display: sampling, staleness, status."""
+
+from __future__ import annotations
+
+import time
+
+import pytest
+
+from motionless.config import Config
+from motionless.daemon import STALE_AFTER_SECONDS, Daemon
+from motionless.motion import GRAVITY, MotionSample
+
+
+def make_daemon(**overrides: object) -> Daemon:
+    config = Config()
+    config.motion.source = "demo"
+    config.motion.smoothing_tau = 0.0
+    config.motion.dead_zone = 0.0
+    for key, value in overrides.items():
+        setattr(config.overlay, key, value)
+    return Daemon(config)
+
+
+def settle(daemon: Daemon, seconds: float = 0.5, dt: float = 0.02) -> float:
+    """Feed level samples so the gravity estimate converges."""
+    count = int(seconds / dt)
+    for index in range(count):
+        daemon._on_sample(MotionSample(0.0, 0.0, GRAVITY, index * dt))
+    daemon.current_motion()
+    return count * dt
+
+
+class TestSampling:
+    def test_buffered_samples_are_drained_into_a_state(self) -> None:
+        daemon = make_daemon()
+        elapsed = settle(daemon)
+        for index in range(10):
+            daemon._on_sample(MotionSample(3.0, 0.0, GRAVITY, elapsed + index * 0.02))
+        assert daemon.current_motion().lateral > 1.0
+
+    def test_the_buffer_is_emptied_each_frame(self) -> None:
+        daemon = make_daemon()
+        daemon._on_sample(MotionSample(0.0, 0.0, GRAVITY, 0.0))
+        daemon.current_motion()
+        assert len(daemon._samples) == 0
+
+    def test_the_buffer_is_bounded(self) -> None:
+        daemon = make_daemon()
+        for index in range(10_000):
+            daemon._on_sample(MotionSample(0.0, 0.0, GRAVITY, index * 0.001))
+        # A stalled main loop must not turn into unbounded memory growth.
+        assert len(daemon._samples) <= daemon._samples.maxlen or 0
+
+    def test_sample_count_is_tracked_for_status(self) -> None:
+        daemon = make_daemon()
+        for index in range(5):
+            daemon._on_sample(MotionSample(0.0, 0.0, GRAVITY, index * 0.02))
+        assert daemon.status()["samples"] == 5
+
+
+class TestStaleness:
+    def test_no_sensor_at_all_reads_as_still(self) -> None:
+        assert make_daemon().current_motion().is_still
+
+    def test_a_silent_sensor_settles_the_cue(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        daemon = make_daemon()
+        elapsed = settle(daemon)
+        for index in range(10):
+            daemon._on_sample(MotionSample(3.0, 0.0, GRAVITY, elapsed + index * 0.02))
+        assert daemon.current_motion().lateral > 1.0
+
+        # Pretend the sensor went quiet: the dots must fade rather than freeze
+        # mid-manoeuvre, which would be worse than showing nothing.
+        real = time.monotonic
+        monkeypatch.setattr(time, "monotonic", lambda: real() + STALE_AFTER_SECONDS + 1.0)
+        assert daemon.current_motion().is_still
+
+    def test_fresh_samples_are_not_stale(self) -> None:
+        daemon = make_daemon()
+        elapsed = settle(daemon)
+        daemon._on_sample(MotionSample(5.0, 0.0, GRAVITY, elapsed))
+        assert not daemon.current_motion().is_still
+
+
+class TestStatus:
+    def test_reports_the_essentials(self) -> None:
+        status = make_daemon().status()
+        for key in ("version", "pid", "uptime", "visible", "backend", "source", "motion"):
+            assert key in status
+
+    def test_motion_values_are_rounded_for_display(self) -> None:
+        daemon = make_daemon()
+        elapsed = settle(daemon)
+        for index in range(10):
+            daemon._on_sample(MotionSample(1.23456789, 0.0, GRAVITY, elapsed + index * 0.02))
+        daemon.current_motion()
+        assert len(str(daemon.status()["motion"]["lateral"]).split(".")[-1]) <= 3
+
+    def test_no_overlay_yet_means_not_visible(self) -> None:
+        assert make_daemon().status()["visible"] is False
+
+    def test_source_errors_surface(self) -> None:
+        daemon = make_daemon()
+        assert daemon.status()["source_error"] is None
+
+
+class TestInitialVisibility:
+    def test_defaults_to_visible(self) -> None:
+        assert make_daemon()._initial_visible is True
+
+    def test_start_hidden_configuration_is_honoured(self) -> None:
+        config = Config()
+        config.start_hidden = True
+        assert Daemon(config)._initial_visible is False
+
+    def test_an_explicit_override_wins(self) -> None:
+        config = Config()
+        config.start_hidden = True
+        assert Daemon(config, visible=True)._initial_visible is True
+
+
+def test_a_headless_environment_refuses_to_run_rather_than_crashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daemon = make_daemon()
+    # The conftest fixture already clears DISPLAY/WAYLAND_DISPLAY, so the plan
+    # is unusable and run() must say so instead of raising out of GTK.
+    assert not daemon.plan.usable
+    assert daemon.run() == 1
