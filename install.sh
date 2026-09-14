@@ -85,13 +85,31 @@ confirm() {
   case "$reply" in [nN]*) return 1 ;; *) return 0 ;; esac
 }
 
+SUDO_PRIMED=0
+
+# Ask for the password once, up front, with an explanation. Otherwise sudo
+# prompts from inside a long silent command and, since nothing is echoed as
+# you type, it looks like the installer has frozen.
+prime_sudo() {
+  [ "$(id -u)" -eq 0 ] && return 0
+  [ "$SUDO_PRIMED" = "1" ] && return 0
+  has sudo || die "need root to install packages, but sudo is not available. Re-run as root, or use --no-deps."
+  if sudo -n true 2>/dev/null; then
+    SUDO_PRIMED=1
+    return 0
+  fi
+  info "sudo needs your password to install system packages."
+  warn "nothing is shown as you type — enter it and press Enter"
+  sudo -v || die "could not get sudo privileges; re-run as root, or use --no-deps"
+  SUDO_PRIMED=1
+}
+
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
-  elif has sudo; then
-    sudo "$@"
   else
-    die "need root to install packages, but sudo is not available. Re-run as root, or use --no-deps."
+    prime_sudo
+    sudo "$@"
   fi
 }
 
@@ -149,17 +167,28 @@ install_system_deps() {
   fi
 
   info "System packages ($manager): $packages"
+  if [ "$(id -u)" -ne 0 ]; then
+    info "installing these needs root, so sudo will ask for your password"
+  fi
   if ! confirm "Install them now?" "$assume_yes"; then
     warn "skipped; motionless will not start until the GTK bindings are present"
     return 0
   fi
 
+  prime_sudo
+
   # shellcheck disable=SC2086  # $packages is a deliberate word list
   case "$manager" in
-    apt)    run_root apt-get update -qq; run_root apt-get install -y $packages ;;
-    dnf)    run_root dnf install -y $packages ;;
-    pacman) run_root pacman -S --needed --noconfirm $packages ;;
-    zypper) run_root zypper install -y $packages ;;
+    apt)
+      info "updating package lists"
+      run_root env DEBIAN_FRONTEND=noninteractive apt-get update -q </dev/null
+      info "installing packages"
+      run_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+        apt-get install -y $packages </dev/null
+      ;;
+    dnf)    run_root dnf install -y $packages </dev/null ;;
+    pacman) run_root pacman -S --needed --noconfirm $packages </dev/null ;;
+    zypper) run_root zypper install -y $packages </dev/null ;;
   esac
   ok "system packages installed"
 }
