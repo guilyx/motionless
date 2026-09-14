@@ -62,7 +62,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends shellcheck
-          shellcheck install.sh
+          shellcheck install.sh docs/capture_screenshot.sh docs/capture_demo.sh
       - name: Installer help runs without side effects
         run: bash install.sh --help
 

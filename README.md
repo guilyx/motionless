@@ -12,12 +12,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Dots drifting at the edges of a desktop as the vehicle corners" width="760">
+  <img src="docs/demo.gif" alt="Dots fading in and drifting at the edges of a desktop as the vehicle moves" width="760">
 </p>
 
 <p align="center">
-  <sub>The dots are drawn by motionless itself — a real capture over a synthetic
-  desktop, reproducible with <code>./docs/capture_screenshot.sh</code>.</sub>
+  <sub>A real recording of motionless running, not a mockup — the overlay is
+  driven by actual acceleration and screen-recorded. Reproducible with
+  <code>./docs/capture_demo.sh</code>.</sub>
 </p>
 
 ---
@@ -195,6 +196,15 @@ into "Ubuntu on Xorg" removes the caveat entirely.
 
 The overlay is always transparent to input — clicks, scrolls and keystrokes go
 straight through to whatever is underneath.
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="A single frame of the overlay at full resolution" width="720">
+</p>
+
+<p align="center">
+  <sub>One frame at full resolution: the cue sits in a peripheral band and
+  fades toward the middle of the screen, where your content is.</sub>
+</p>
 
 ## Something's wrong
 

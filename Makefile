@@ -52,6 +52,10 @@ run: ## Run the overlay against the synthetic drive loop
 screenshot: ## Regenerate docs/screenshot.png by capturing the real overlay
 	./docs/capture_screenshot.sh $(BIN)/motionless
 
+.PHONY: demo
+demo: ## Regenerate docs/demo.gif by recording the real overlay
+	./docs/capture_demo.sh $(BIN)/motionless
+
 .PHONY: build
 build: ## Build the sdist and wheel
 	$(BIN)/pip install --quiet build

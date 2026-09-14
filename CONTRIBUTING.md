@@ -33,9 +33,9 @@ The demo source replays a synthetic drive, so you can see cue behaviour
 without leaving your desk. `motionless preview` is faster still when you are
 only adjusting spacing, colour or opacity.
 
-`make screenshot` regenerates `docs/screenshot.png` by running the real
-overlay on a virtual display (needs `xvfb`, `xcompmgr`, `feh` and
-`imagemagick`). Note the compositing manager: without one, X has nowhere to
+`make screenshot` regenerates `docs/screenshot.png`, and `make demo`
+regenerates `docs/demo.gif`, both by running the real overlay on a virtual
+display (needs `xvfb`, `xcompmgr`, `feh`, and `imagemagick` or `ffmpeg`). Note the compositing manager: without one, X has nowhere to
 composite the overlay's alpha and it captures as a black rectangle — the same
 reason the overlay looks wrong on a desktop with compositing switched off.
 
@@ -50,7 +50,7 @@ reason the overlay looks wrong on a desktop with compositing switched off.
 | `src/motionless/sources/` | Motion sources |
 | `src/motionless/daemon.py` | Process lifecycle, wiring, control commands |
 | `src/motionless/cli.py` | Command line interface |
-| `docs/` | Backdrop generator and the screenshot capture script |
+| `docs/` | Backdrop generator, and the screenshot and demo capture scripts |
 
 The split is deliberate: everything except `window.py` runs headless, which is
 why the test suite can cover the visual behaviour without a display server.
