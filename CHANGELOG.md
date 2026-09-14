@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Documentation
+- Install instructions no longer tell you to `pipx install motionless-overlay`.
+  Nothing has been published to PyPI, so that command fails; installing from
+  the repository is documented as the path that works today. The PyPI badge,
+  which rendered an error for a package that does not exist, is removed until
+  the first release, and CONTRIBUTING now documents the release steps.
 - Added a Prior art section. An earlier draft claimed there was no Linux
   equivalent; [Mewtion](https://github.com/aayuxh-vim/Mewtion) exists and
   predates this, and the section now says where each is stronger.

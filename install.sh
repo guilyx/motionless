@@ -200,7 +200,8 @@ install_package() {
 
   if ! "$installer" "$target"; then
     if [ "${MOTIONLESS_SOURCE:-pypi}" = "pypi" ]; then
-      warn "install from PyPI failed; falling back to the git repository"
+      # Expected until the first release is published; not a failure.
+      info "not available on PyPI yet; installing from the git repository"
       MOTIONLESS_SOURCE=git
       "$installer" "$(install_target)" || die "installation failed"
     else

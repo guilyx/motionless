@@ -6,7 +6,6 @@
 
 <p align="center">
   <a href="https://github.com/guilyx/motionless/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/guilyx/motionless/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://pypi.org/project/motionless-overlay/"><img alt="PyPI" src="https://img.shields.io/pypi/v/motionless-overlay"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue">
 </p>
@@ -50,23 +49,30 @@ and `--no-deps` skips the package-manager step.
 <details>
 <summary>Other ways to install</summary>
 
-**pipx**, if you already have the GTK bindings:
+**From source**, if you would rather not run a script:
 
 ```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0
-pipx install --system-site-packages motionless-overlay
-```
-
-The `--system-site-packages` flag matters: PyGObject comes from your
-distribution, not from pip.
-
-**From source:**
-
-```bash
 git clone https://github.com/guilyx/motionless && cd motionless
 python3 -m venv --system-site-packages .venv && source .venv/bin/activate
 pip install -e .
 ```
+
+Or the same thing through `pipx`, straight from the repository:
+
+```bash
+pipx install --system-site-packages git+https://github.com/guilyx/motionless
+```
+
+The `--system-site-packages` flag matters in both: PyGObject comes from your
+distribution, not from pip, and a virtualenv without it cannot see the
+bindings. `motionless doctor` says so plainly if you get this wrong.
+
+**From PyPI — not yet.** `motionless-overlay` is the intended distribution
+name (plain `motionless` belongs to an unrelated library) but nothing has been
+published, so `pipx install motionless-overlay` will not work today. The
+installer above already tries PyPI first and falls back to the repository, so
+it will pick up releases automatically once they exist.
 
 **Uninstall:**
 

@@ -63,9 +63,10 @@ def _mismatch_hint() -> str:
     running = f"{sys.version_info.major}.{sys.version_info.minor}"
     return (
         f"the module is installed but will not load on Python {running} — it is built "
-        f"for your distribution's python3. Install with "
-        f"`pipx install --system-site-packages motionless-overlay`, or build the "
-        f"virtualenv with that interpreter"
+        f"for your distribution's python3. Re-create the environment with that "
+        f"interpreter and system site packages: "
+        f"`/usr/bin/python3 -m venv --system-site-packages <dir>`, or "
+        f"`pipx install --system-site-packages --python /usr/bin/python3 <package>`"
     )
 
 

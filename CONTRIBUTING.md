@@ -74,6 +74,23 @@ Please keep new logic on the testable side of that line.
 - New behaviour needs a test. Behaviour that needs a display server does not —
   say so in the PR and describe how you verified it by hand.
 
+## Releasing
+
+Not done yet — there is no published release, and `motionless-overlay` is
+unclaimed on PyPI. The first one needs, in order:
+
+1. Claim the name on PyPI, so nobody else takes it.
+2. Add a `pypi` environment to the repository and configure
+   [trusted publishing](https://docs.pypi.org/trusted-publishers/) for the
+   `Release` workflow. No API token is stored in the repository.
+3. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a version
+   heading and bump `__version__` in `src/motionless/__init__.py`.
+4. Tag `vX.Y.Z` and push it. `.github/workflows/release.yml` builds, publishes
+   and creates the GitHub release.
+5. Restore the PyPI badge in `README.md` and point the install instructions at
+   the published package. `install.sh` needs no change — it already tries PyPI
+   first and falls back to the repository.
+
 ## Reporting compatibility
 
 If the overlay misbehaves on your desktop, `motionless doctor` output plus your
