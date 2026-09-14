@@ -140,7 +140,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="backdrop colour, or 'none' for a transparent PNG",
     )
 
-    sub.add_parser("sources", help="list motion sources and whether they are usable")
+    sources = sub.add_parser("sources", help="list motion sources and whether they are usable")
+    sources.add_argument(
+        "--auto",
+        action="store_true",
+        help="print only the source auto-detection would choose, for scripts",
+    )
     doctor = sub.add_parser("doctor", help="check this machine can run the overlay")
     doctor.add_argument("--json", action="store_true", help="machine-readable output")
 
@@ -366,16 +371,32 @@ def cmd_preview(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_sources(_args: argparse.Namespace) -> int:
-    from motionless.sources import SOURCES
+def cmd_sources(args: argparse.Namespace) -> int:
+    from motionless.sources import SOURCES, detect
 
+    if args.auto:
+        # Machine-readable and nothing else, so the installer can branch on it.
+        print(detect().name)
+        return 0
+
+    available = probe_all()
     for source in SOURCES:
-        availability = probe_all()[source.name]
+        if source.name == "none":
+            continue
+        availability = available[source.name]
         level = Level.OK if availability.available else Level.WARN
         print(f"{_paint(_MARKERS[level], level)} {source.name:<6} {source.description}")
         if availability.detail:
             print(f"    {availability.detail}")
-    print("\nSelect one with `motionless config set motion.source <name>`.")
+
+    chosen = detect().name
+    print()
+    if chosen == "none":
+        print("Auto-detection finds no sensor on this machine, so no cues will appear.")
+        print("Stream from a phone instead: `motionless config set motion.source udp`.")
+    else:
+        print(f"Auto-detection would use: {chosen}")
+        print("Override with `motionless config set motion.source <name>`.")
     return 0
 
 

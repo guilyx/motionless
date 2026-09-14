@@ -269,21 +269,63 @@ post_install() {
 
   case ":$PATH:" in
     *":$bin:"*) ;;
-    *) warn "$bin is not on your PATH; add it to your shell profile" ;;
+    *) warn "$bin is not on your PATH; add it to your shell profile, then open a new shell" ;;
   esac
 
   echo
-  if has motionless; then
-    motionless doctor || true
-    echo
-    info "Next steps"
-    echo "    motionless start            # run it now"
-    echo "    motionless toggle           # bind this to a hotkey"
-    echo "    motionless service install  # start with your session"
-    echo "    motionless config edit      # tune the look"
-  else
+  if ! has motionless; then
     warn "the 'motionless' command is not on your PATH yet — open a new shell and try again"
+    return 0
   fi
+
+  info "Checking this machine"
+  echo
+  motionless doctor || true
+  echo
+
+  # The one thing people need to know and cannot guess: whether there is
+  # anything to react to. Without a sensor the overlay is correct and idle,
+  # which is indistinguishable from broken unless we say so here.
+  local source
+  source="$(motionless sources --auto 2>/dev/null || true)"
+
+  if [ "$source" = "none" ]; then
+    warn "No motion sensor found on this machine."
+    echo "    This laptop has no accelerometer under /sys/bus/iio, so there is"
+    echo "    nothing for the cues to follow. motionless will start, and draw"
+    echo "    nothing, until you give it a source of motion."
+    echo
+    info "Use your phone instead — it has the sensor this machine lacks"
+    echo "    1. Put your laptop and phone on the same network (a phone hotspot is fine)."
+    echo "    2. Install any Android app that streams the accelerometer over UDP."
+    echo "    3. Point it at this machine on port 5577, then:"
+    echo
+    echo "         motionless config set motion.source udp"
+    echo "         motionless config set motion.udp.host 0.0.0.0"
+    echo "         motionless start"
+    echo "         motionless status      # 'samples' should climb"
+    echo
+    echo "    Full instructions: https://github.com/guilyx/motionless#where-the-motion-comes-from"
+    echo
+    info "To see what the cues look like without any sensor"
+    echo "    motionless run --source demo --always-on"
+    echo "    (a scripted drive — for previewing only, never use it in a vehicle)"
+  else
+    ok "Motion sensor found: $source"
+    echo
+    info "Get going"
+    echo "    motionless start                  # run it now"
+    echo "    motionless toggle                 # bind this to a hotkey"
+    echo "    motionless service install        # start with your session"
+    echo
+    warn "Check the axis mapping before you rely on it — parked, not driving:"
+    echo "    motionless start"
+    echo "    watch -n 0.3 'motionless status | grep motion'"
+    echo "    Slide the laptop to your right: 'lat' should go positive."
+    echo "    If it does not, see the Tuning section of the README."
+  fi
+  echo
+  info "Anything unclear: motionless doctor  |  motionless --help"
 }
 
 uninstall() {

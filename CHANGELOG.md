@@ -6,7 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `motionless sources` now names the source auto-detection would choose, and
+  `--auto` prints just that name for scripts. The installer uses it to say,
+  in the case that cannot be guessed from the overlay, that this machine has
+  no sensor and what to do about it.
+
 ### Changed
+- The installer's closing output explains what it found rather than listing
+  commands: whether a motion sensor exists, the phone route with the exact
+  commands when it does not, and the axis check to run parked when it does.
 - `motion.source = "auto"` no longer falls back to the synthetic `demo` source
   when no accelerometer is present. It reports no source and draws nothing
   instead. Cues that disagree with the vehicle you are in are a worse sensory
@@ -16,6 +25,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   there is none.
 
 ### Fixed
+- `motionless config set` and `motionless reload` reported a failure for a
+  change the daemon had in fact applied. Reload tore down and rebuilt every
+  overlay window even when nothing about the geometry had changed; on a loaded
+  machine that took longer than the control socket's three-second timeout, so
+  the client gave up while the daemon carried on and succeeded. Reload now
+  restyles the existing windows and only rebuilds when the set of monitors to
+  cover changes, and commands that do real work are allowed longer.
+- The overlay connected a pair of monitor-added/removed handlers on every
+  start and never disconnected them, so each rebuild left another copy behind.
 - `motionless stop` could hang and leave the daemon running. The quit was
   scheduled with `GLib.idle_add`, which runs at `PRIORITY_DEFAULT_IDLE` —
   below the overlay's `PRIORITY_DEFAULT` redraw timer. On a machine slow

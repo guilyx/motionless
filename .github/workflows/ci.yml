@@ -126,6 +126,10 @@ jobs:
               assert ipc.request("toggle")["visible"] is False
               assert ipc.request("toggle")["visible"] is True
               ipc.request("reload")
+
+              # Send quit even if something above raised, so a failure earlier
+              # in the script cannot leave the daemon running and disguise
+              # itself as a shutdown that hung.
               ipc.request("quit")
           finally:
               try:
@@ -136,8 +140,9 @@ jobs:
               except subprocess.TimeoutExpired:
                   daemon.kill()
                   raise SystemExit(
-                      "daemon did not stop within 45s of `quit` — the reply was "
-                      "sent, so the main loop did not act on it"
+                      "daemon still running 45s after the script finished. If an "
+                      "error appears above, `quit` was never sent and that error "
+                      "is the real failure; otherwise the main loop ignored it."
                   ) from None
           assert daemon.returncode == 0, f"daemon exited {daemon.returncode}"
           print("smoke test passed")
