@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 import time
 from pathlib import Path
 
@@ -207,3 +209,35 @@ def test_a_headless_environment_refuses_to_run_rather_than_crashing(
     # is unusable and run() must say so instead of raising out of GTK.
     assert not daemon.plan.usable
     assert daemon.run() == 1
+
+
+class TestLogging:
+    def test_the_detached_daemon_does_not_write_every_line_twice(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`motionless start` redirects the child's stderr into the log file.
+
+        A FileHandler on that same file as well would double every line, which
+        makes a log unreadable at exactly the moment you need to read it.
+        """
+        from motionless.daemon import configure_logging
+        from motionless.paths import ensure_dir, log_file, state_dir
+
+        ensure_dir(state_dir())
+        target = log_file()
+        with target.open("a") as redirected:
+            monkeypatch.setattr(sys, "stderr", redirected)
+            configure_logging()
+            handlers = logging.getLogger().handlers
+            assert not any(isinstance(h, logging.FileHandler) for h in handlers)
+        configure_logging(to_file=False)  # leave the root logger as we found it
+
+    def test_a_normal_foreground_run_still_gets_a_log_file(self) -> None:
+        from motionless.daemon import configure_logging
+
+        configure_logging()
+        try:
+            handlers = logging.getLogger().handlers
+            assert any(isinstance(h, logging.FileHandler) for h in handlers)
+        finally:
+            configure_logging(to_file=False)

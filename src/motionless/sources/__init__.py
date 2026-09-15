@@ -7,18 +7,26 @@ from motionless.sources.base import Availability, MotionSource, SampleCallback
 from motionless.sources.demo import DemoSource
 from motionless.sources.iio import IioSource
 from motionless.sources.null import NullSource
+from motionless.sources.phone import PhoneSource
 from motionless.sources.udp import UdpSource
 
 #: Every source that can be named in configuration, in registry order.
-SOURCES: tuple[type[MotionSource], ...] = (IioSource, UdpSource, DemoSource, NullSource)
+SOURCES: tuple[type[MotionSource], ...] = (
+    IioSource,
+    PhoneSource,
+    UdpSource,
+    DemoSource,
+    NullSource,
+)
 
 #: Order tried by ``source = "auto"``.
 #:
-#: ``udp`` is excluded because it is always "available" but does nothing
-#: without a sender. ``demo`` is excluded for a more important reason: it
-#: replays a *synthetic* drive, and cues that disagree with the vehicle you are
-#: actually in are worse than no cues at all. Auto-detection that cannot find a
-#: real sensor says so instead of inventing motion.
+#: ``phone`` and ``udp`` are excluded because they are always "available" but
+#: do nothing until a phone is paired or a sender starts. ``demo`` is excluded
+#: for a more important reason: it replays a *synthetic* drive, and cues that
+#: disagree with the vehicle you are actually in are worse than no cues at all.
+#: Auto-detection that cannot find a real sensor says so instead of inventing
+#: motion.
 AUTO_ORDER: tuple[type[MotionSource], ...] = (IioSource,)
 
 
@@ -61,6 +69,17 @@ def build(config: MotionConfig, on_sample: SampleCallback) -> MotionSource:
     cls = detect() if config.source == "auto" else get_source_class(config.source)
     if cls is IioSource:
         return IioSource(on_sample, device=config.iio.device, poll_hz=config.iio.poll_hz)
+    if cls is PhoneSource:
+        return PhoneSource(
+            on_sample,
+            host=config.phone.host,
+            port=config.phone.port,
+            units=config.phone.units,
+            token=config.phone.token,
+            invert=config.phone.invert,
+            tls_cert=config.phone.tls_cert,
+            tls_key=config.phone.tls_key,
+        )
     if cls is UdpSource:
         return UdpSource(
             on_sample, host=config.udp.host, port=config.udp.port, units=config.udp.units
@@ -76,6 +95,7 @@ __all__ = [
     "IioSource",
     "MotionSource",
     "NullSource",
+    "PhoneSource",
     "UdpSource",
     "UnknownSourceError",
     "build",

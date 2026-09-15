@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -42,6 +43,49 @@ class UdpSourceConfig:
             raise ConfigError(f"motion.udp.port must be within 1-65535, got {self.port}")
         if self.units not in ("m/s^2", "g"):
             raise ConfigError(f"motion.udp.units must be 'm/s^2' or 'g', got {self.units!r}")
+
+
+@dataclass
+class PhoneSourceConfig:
+    """Settings for the ``phone`` source (a phone's accelerometer over HTTP)."""
+
+    #: Bind address. Loopback is right for the USB path, where ``adb reverse``
+    #: delivers the phone's traffic to our own loopback. Set ``0.0.0.0`` only
+    #: for the Wi-Fi path, and only together with a token and TLS.
+    host: str = "127.0.0.1"
+    port: int = 5577
+    #: Units the sender uses when it does not say: ``m/s^2`` or ``g``.
+    units: str = "m/s^2"
+    #: Shared secret required in the URL. Empty disables the check, which is
+    #: only safe on loopback. ``motionless pair`` fills this in.
+    token: str = ""
+    #: iOS reports ``accelerationIncludingGravity`` with the opposite sign to
+    #: everything else. ``auto`` trusts the sender's own platform flag;
+    #: ``always`` and ``never`` override it when the cues come out mirrored.
+    invert: str = "auto"
+    #: PEM certificate and key for HTTPS, which the Wi-Fi path needs because
+    #: browsers only expose motion sensors in a secure context.
+    tls_cert: str = ""
+    tls_key: str = ""
+
+    def validate(self) -> None:
+        if not 1 <= self.port <= 65535:
+            raise ConfigError(f"motion.phone.port must be within 1-65535, got {self.port}")
+        if self.units not in ("m/s^2", "g"):
+            raise ConfigError(f"motion.phone.units must be 'm/s^2' or 'g', got {self.units!r}")
+        if self.invert not in ("auto", "always", "never"):
+            raise ConfigError(
+                f"motion.phone.invert must be 'auto', 'always' or 'never', got {self.invert!r}"
+            )
+        if bool(self.tls_cert) != bool(self.tls_key):
+            raise ConfigError("motion.phone needs both tls_cert and tls_key, or neither")
+        if not self.token.isascii() or any(c.isspace() for c in self.token):
+            raise ConfigError("motion.phone.token must be ASCII with no spaces")
+        if self.host not in ("127.0.0.1", "::1", "localhost") and not self.token:
+            # Without a token, anything on the network can inject motion.
+            raise ConfigError(
+                "motion.phone.token is required when motion.phone.host is not loopback"
+            )
 
 
 @dataclass
@@ -83,6 +127,7 @@ class MotionConfig:
     clamp: float = 6.0
     udp: UdpSourceConfig = field(default_factory=UdpSourceConfig)
     iio: IioSourceConfig = field(default_factory=IioSourceConfig)
+    phone: PhoneSourceConfig = field(default_factory=PhoneSourceConfig)
 
     def axis_map(self) -> AxisMap:
         try:
@@ -101,6 +146,7 @@ class MotionConfig:
             raise ConfigError("motion.clamp must be positive")
         self.udp.validate()
         self.iio.validate()
+        self.phone.validate()
 
 
 @dataclass
@@ -233,17 +279,33 @@ class Config:
         a caller that catches :class:`ConfigError` and carries on must not be
         left holding a half-applied configuration.
         """
-        node, name = self._resolve(dotted)
-        declared = {f.name: f.type for f in fields(node)}[name]
-        value = _coerce(raw, declared, dotted)
-        previous = getattr(node, name)
-        setattr(node, name, value)
+        return self.update({dotted: raw})[dotted]
+
+    def update(self, settings: Mapping[str, str]) -> dict[str, Any]:
+        """Apply several settings together, validating once they are all in.
+
+        Settings can constrain each other — a non-loopback ``motion.phone.host``
+        is only valid once ``motion.phone.token`` is set — so applying them one
+        at a time would reject a perfectly good combination purely because of
+        the order it happened to arrive in. Either all of them take effect or,
+        on the first complaint, none of them do.
+        """
+        previous: list[tuple[Any, str, Any]] = []
+        applied: dict[str, Any] = {}
         try:
+            for dotted, raw in settings.items():
+                node, name = self._resolve(dotted)
+                declared = {f.name: f.type for f in fields(node)}[name]
+                value = _coerce(raw, declared, dotted)
+                previous.append((node, name, getattr(node, name)))
+                setattr(node, name, value)
+                applied[dotted] = value
             self.validate()
         except ConfigError:
-            setattr(node, name, previous)
+            for node, name, old in reversed(previous):
+                setattr(node, name, old)
             raise
-        return value
+        return applied
 
     def setting_names(self) -> list[str]:
         return _dotted_keys(self, prefix="")

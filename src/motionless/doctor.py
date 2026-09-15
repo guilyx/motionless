@@ -169,8 +169,8 @@ def check_sources() -> list[Check]:
                 "Auto-detected source",
                 Level.WARN,
                 "none — no accelerometer on this machine, so no cues will appear",
-                "stream from a phone: `motionless config set motion.source udp` "
-                "(see the README), or preview the look with "
+                "use your phone as the sensor — nothing to install on it: "
+                "`motionless pair`. To preview the look without a vehicle: "
                 "`motionless run --source demo`",
             )
         )

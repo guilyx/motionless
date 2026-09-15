@@ -31,10 +31,26 @@ SAMPLE_BUFFER = 256
 STALE_AFTER_SECONDS = 1.0
 
 
+def _stderr_is(path: Path) -> bool:
+    """Whether stderr already points at ``path``.
+
+    ``motionless start`` detaches the daemon with its stderr redirected into
+    the log file. Adding a FileHandler on that same file as well would write
+    every line twice, which is exactly the sort of thing that makes a log
+    useless at the moment you need it.
+    """
+    try:
+        stream = os.fstat(sys.stderr.fileno())
+        target = path.stat()
+    except (OSError, ValueError, AttributeError):
+        return False
+    return (stream.st_dev, stream.st_ino) == (target.st_dev, target.st_ino)
+
+
 def configure_logging(verbose: bool = False, *, to_file: bool = True) -> None:
     """Log to stderr, and to ``$XDG_STATE_HOME/motionless/motionless.log``."""
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
-    if to_file:
+    if to_file and not _stderr_is(log_file()):
         try:
             ensure_dir(state_dir())
             handlers.append(logging.FileHandler(log_file(), encoding="utf-8"))
@@ -147,8 +163,8 @@ class Daemon:
                 log.warning(
                     "no motion source: this machine has no accelerometer under "
                     "/sys/bus/iio, so there is nothing to react to and no cues "
-                    "will appear. Run `motionless sources`; the usual answer is "
-                    'to stream from a phone with `motion.source = "udp"`.'
+                    "will appear. The usual answer is to use your phone as the "
+                    "sensor: run `motionless pair`."
                 )
             else:
                 log.info("motion source: %s", self._source.name)
@@ -221,8 +237,7 @@ class Daemon:
         silently undoes the flags the daemon was started with.
         """
         config = Config.load(self.config_path)
-        for key, value in self.overrides.items():
-            config.set(key, value)
+        config.update(self.overrides)
         restart_source = config.motion != self.config.motion
         self.config = config
         self._processor = self._build_processor(config)
@@ -248,6 +263,7 @@ class Daemon:
             "monitors": self._overlay.monitor_count if self._overlay else 0,
             "source": self._source.name,
             "source_error": f"{type(error).__name__}: {error}" if error else None,
+            "source_detail": self._source.details(),
             "samples": self._sample_count,
             "calibrated": self._processor.has_gravity_estimate,
             "motion": {
