@@ -400,14 +400,14 @@ post_install() {
     echo "    nothing, until you give it a source of motion."
     echo
     info "Use your phone instead — it has the sensor this machine lacks"
-    echo "    1. Put your laptop and phone on the same network (a phone hotspot is fine)."
-    echo "    2. Install any Android app that streams the accelerometer over UDP."
-    echo "    3. Point it at this machine on port 5577, then:"
+    echo "    There is nothing to install on the phone. One command sets it up:"
     echo
-    echo "         motionless config set motion.source udp"
-    echo "         motionless config set motion.udp.host 0.0.0.0"
+    echo "         motionless pair        # prints a URL to open on the phone"
     echo "         motionless start"
     echo "         motionless status      # 'samples' should climb"
+    echo
+    echo "    A phone in the car's cradle is bolted to the vehicle; a laptop on"
+    echo "    your knees measures your knees. The phone is the better sensor."
     echo
     echo "    Full instructions: https://github.com/guilyx/motionless#where-the-motion-comes-from"
     echo

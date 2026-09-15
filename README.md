@@ -95,6 +95,7 @@ curl -fsSL https://raw.githubusercontent.com/guilyx/motionless/main/install.sh |
 ## Use it
 
 ```bash
+motionless pair               # use your phone as the sensor (no app to install)
 motionless start              # start the overlay in the background
 motionless toggle             # show/hide the cues — bind this to a hotkey
 motionless status             # what is it doing right now?
@@ -102,6 +103,10 @@ motionless stop
 
 motionless service install    # start automatically with your session
 ```
+
+Most laptops have no accelerometer, so `motionless pair` is usually step one.
+[Where the motion comes from](#where-the-motion-comes-from) explains why, and
+what it does.
 
 Bind `motionless toggle` to a key in **Settings → Keyboard → Custom Shortcuts**
 (GNOME), **System Settings → Shortcuts** (KDE), or your `sway`/`hyprland`
@@ -124,7 +129,8 @@ Run `motionless sources` to see which of these your machine can use.
 | Source | Works when | Notes |
 | --- | --- | --- |
 | `iio` | Your device has an accelerometer | Convertibles, tablets, and laptops with screen-rotation or drive-protection sensors. Read straight from `/sys/bus/iio`. |
-| `udp` | You stream readings from a phone | A phone in the car's cradle is a *better* motion sensor than a laptop on your knees. |
+| `phone` | Always — run `motionless pair` | Your phone's accelerometer, over the USB cable or over Wi-Fi. Nothing to install on the phone. |
+| `udp` | You already have a sensor-streaming app | Raw datagrams on port 5577, for apps and bridges that speak UDP. |
 | `demo` | Always | Synthetic drive loop, for previewing and tuning **only**. |
 
 `motion.source = "auto"` (the default) uses `iio` when this machine has an
@@ -137,13 +143,102 @@ will not quietly substitute invented motion for a missing sensor. Run
 `motionless doctor`: it names the source it chose, and says what to do when
 there is none.
 
-Most laptops have no accelerometer. If yours does not, use your phone.
+Most laptops have no accelerometer. If yours does not, use your phone — it is
+not a workaround, it is the better sensor. A phone wedged in the car's cradle
+is bolted to the vehicle; a laptop on your knees measures your knees.
+
+### Use your phone as the sensor
+
+```bash
+motionless pair
+```
+
+That is the whole thing. It picks a route, prints a URL, and you open that URL
+in the phone's normal browser. **There is no app to install.** The page reads
+the phone's accelerometer and posts the readings back.
+
+`motionless pair` chooses between two routes:
+
+| Route | Phones | Setup | Notes |
+| --- | --- | --- | --- |
+| **USB cable** | Android | USB debugging on, once | No network, no certificate, no battery drain. The steadier option. |
+| **Wi-Fi** | iPhone and Android | Accept a certificate warning, once | Phone and laptop on the same network. |
+
+The split is not arbitrary — one browser rule forces it. `DeviceMotionEvent`
+only fires in a **secure context**. `adb reverse tcp:5577 tcp:5577` makes the
+laptop's port appear on the phone's *own* `localhost`, which browsers trust, so
+the USB route needs no certificate at all. A LAN address gets no such trust, so
+the Wi-Fi route has to be HTTPS — and since no certificate authority will vouch
+for `192.168.x.x`, `motionless pair` generates a self-signed one and you accept
+it once. On iOS: **Show Details → visit this website**.
 
 <details>
-<summary>Using your phone as the sensor</summary>
+<summary>Why there is no USB route for iPhone</summary>
 
-Any app that streams accelerometer readings over UDP works. Point it at your
-laptop on port 5577 and tell motionless to listen:
+`usbmuxd` forwards host-to-device only. `iproxy` lets the *laptop* reach a port
+on the *phone*; nothing in iOS forwards a phone-side port back to the host
+without a jailbreak. So Safari cannot be pointed at the laptop over the cable,
+and Wi-Fi is the iPhone route. iOS also requires
+`DeviceMotionEvent.requestPermission()` to be called from a real tap, which is
+why the page has a Start button rather than starting on load.
+
+</details>
+
+<details>
+<summary>If it does not work</summary>
+
+- **`motionless pair --usb` says no phone is connected.** Enable USB debugging:
+  Settings > About phone > tap *Build number* seven times, then Settings >
+  Developer options > *USB debugging*. Plug the cable in and accept the prompt
+  on the phone's screen.
+- **The page says "Insecure connection — sensors blocked".** You reached it over
+  plain `http://` on a LAN address. Use the exact URL `motionless pair` printed.
+- **The page loads but nothing moves.** Some privacy browsers block motion
+  sensors outright. Chrome on Android and Safari on iOS both work.
+- **Readings stop when the screen dims.** The accelerometer stops with the
+  screen. The page takes a wake lock where the browser offers one; otherwise set
+  the phone's screen timeout to Never for the journey.
+- **The cues move the wrong way.** `motionless config set motion.phone.invert
+  always` (or `never`) overrides the sender's own guess about its platform.
+  iOS reports `accelerationIncludingGravity` with the opposite sign to every
+  other platform, so the page flags itself and the daemon flips the axes. That
+  correction comes from the documented quirk, **not from a test on real iPhone
+  hardware** — if your iPhone's cues come out mirrored, this setting is the fix,
+  and please open an issue.
+- **Re-pair after unplugging.** The USB forward does not survive the cable
+  coming out. `motionless pair` again.
+
+`motionless status` shows the sender page's URL and when the phone last sent
+anything; `motionless pair --show` reprints the URL on its own.
+
+</details>
+
+<details>
+<summary>What the phone route exposes, and what guards it</summary>
+
+Over USB the page is bound to `127.0.0.1` and reached through `adb reverse`, so
+nothing on the network can see it. Over Wi-Fi it binds to every interface, and
+three things guard it:
+
+- a random **pairing token** in the URL, required on every request — the config
+  refuses a non-loopback bind without one;
+- **HTTPS** with a certificate generated on your machine, so the readings are
+  not sent in clear;
+- posts must be `Content-Type: application/json`, and no CORS headers are ever
+  sent. That combination means a hostile web page cannot quietly feed fake
+  motion to the daemon: the content type forces a preflight, and the preflight
+  is never answered.
+
+The worst case remains someone on your network who has the token moving your
+dots. Prefer the USB route where you can have it.
+
+</details>
+
+<details>
+<summary>Streaming from a sensor app instead (the <code>udp</code> source)</summary>
+
+If you already use an app that streams accelerometer readings over UDP, point
+it at your laptop on port 5577:
 
 ```bash
 motionless config set motion.source udp

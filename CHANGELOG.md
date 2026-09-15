@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `motionless pair`: use your phone as the accelerometer, with **nothing to
+  install on the phone**. A new `phone` source serves a small page that the
+  phone opens in its normal browser; the page reads `DeviceMotionEvent` and
+  posts batches of readings back. Most laptops have no accelerometer, and a
+  phone in the car's cradle is bolted to the vehicle where a laptop on your
+  knees is not — so this is the better sensor, not a workaround.
+- Two routes, chosen automatically. Over USB, `adb reverse` puts the laptop on
+  the phone's own `localhost`, which browsers treat as a secure context, so
+  Android needs no certificate and no network at all. Over Wi-Fi — the iPhone
+  route, since `usbmuxd` forwards host-to-device only — the page is served over
+  HTTPS with a self-signed certificate `pair` generates, because
+  `DeviceMotionEvent` does not fire outside a secure context.
+- `motionless status` now shows the sender page's URL and when the phone last
+  sent anything; `motionless pair --show` reprints the URL on its own.
+- `Config.update()` applies several settings together and validates once, so
+  settings that constrain each other (a network bind needs a pairing token)
+  can be set in either order.
+
+### Fixed
+- `motionless restart` could crash with `Connection reset by peer` instead of
+  restarting. A daemon shutting down accepts the control connection and then
+  dies before replying, and `is_running()` raised on that rather than reading
+  it as "not running". The phone source made it reproducible by taking
+  fractionally longer to shut down; any source could have hit it.
+- The detached daemon wrote every log line twice. `motionless start` redirects
+  the child's stderr into the log file, and the logger was also attaching a
+  handler to that same file.
+
 ### Changed
 - The installer no longer prints the package manager's output. `apt-get update`
   alone is around sixty lines of repository chatter that says nothing about

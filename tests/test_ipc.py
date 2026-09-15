@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import struct
 import threading
 import time
 from collections.abc import Iterator
@@ -100,6 +101,54 @@ class TestRequest:
         stale = tmp_path / "control.sock"
         stale.touch()
         assert not is_running(stale)
+
+    def test_a_daemon_that_drops_the_connection_reads_as_not_running(self, tmp_path: Path) -> None:
+        """A daemon mid-shutdown accepts, then dies before replying.
+
+        `motionless restart` polls is_running() against exactly this state
+        while stopping its own predecessor, so a raised ConnectionResetError
+        here surfaces as a crash from `restart` rather than a second start.
+        """
+        path = tmp_path / "dying.sock"
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(path))
+        listener.listen(1)
+
+        def accept_then_die() -> None:
+            connection, _ = listener.accept()
+            # RST rather than a clean FIN, which is what a dying process sends.
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            connection.close()
+
+        thread = threading.Thread(target=accept_then_die, daemon=True)
+        thread.start()
+        try:
+            assert not is_running(path)
+        finally:
+            thread.join(timeout=2.0)
+            listener.close()
+
+    def test_a_dropped_connection_is_reported_as_unavailable_not_as_an_oserror(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "dying2.sock"
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(path))
+        listener.listen(1)
+
+        def accept_then_die() -> None:
+            connection, _ = listener.accept()
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            connection.close()
+
+        thread = threading.Thread(target=accept_then_die, daemon=True)
+        thread.start()
+        try:
+            with pytest.raises(DaemonUnavailableError, match="closed the connection"):
+                request("status", path=path)
+        finally:
+            thread.join(timeout=2.0)
+            listener.close()
 
     def test_unknown_commands_are_refused_by_the_server(self, server: Harness) -> None:
         with pytest.raises(RuntimeError, match="unknown command"):

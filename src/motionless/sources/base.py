@@ -84,6 +84,15 @@ class MotionSource(abc.ABC):
         """The exception that ended the source's thread, if any."""
         return self._error
 
+    def details(self) -> dict[str, object]:
+        """Extra facts for ``motionless status``, if the source has any.
+
+        Sources that a user has to interact with — a phone to pair, a sender to
+        point somewhere — answer here so ``status`` can show the address rather
+        than make them go looking for it.
+        """
+        return {}
+
     def emit(self, sample: MotionSample) -> None:
         self._on_sample(sample)
 

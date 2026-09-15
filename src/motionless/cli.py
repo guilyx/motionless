@@ -23,6 +23,8 @@ from motionless.config import Config, ConfigError
 from motionless.doctor import Level, run_checks, worst
 from motionless.ipc import DaemonUnavailableError, is_running, read_pid, request
 from motionless.motion import MotionState
+from motionless.pair import AdbDevice as PairDevice
+from motionless.pair import PairError
 from motionless.paths import config_file, ensure_dir, log_file, state_dir
 from motionless.service import ServiceError, render_unit
 from motionless.service import install as service_install
@@ -140,6 +142,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="backdrop colour, or 'none' for a transparent PNG",
     )
 
+    pair = sub.add_parser(
+        "pair",
+        help="use your phone as the sensor (no app to install)",
+        description=(
+            "Point your phone's browser at a page this machine serves, and its "
+            "accelerometer becomes the overlay's sensor. Over a USB cable where "
+            "that is possible, over Wi-Fi otherwise."
+        ),
+    )
+    pair.add_argument(
+        "--usb",
+        dest="mode",
+        action="store_const",
+        const="usb",
+        help="force the USB path (Android with USB debugging)",
+    )
+    pair.add_argument(
+        "--wifi",
+        dest="mode",
+        action="store_const",
+        const="wifi",
+        help="force the Wi-Fi path (iPhone, or Android without USB debugging)",
+    )
+    pair.add_argument("--port", type=int, help="port to serve the sender page on")
+    pair.add_argument("--address", metavar="IP", help="LAN address to advertise (Wi-Fi path)")
+    pair.add_argument("--no-qr", action="store_true", help="never print a QR code")
+    pair.add_argument(
+        "--show", action="store_true", help="print the current pairing details and change nothing"
+    )
+
     sources = sub.add_parser("sources", help="list motion sources and whether they are usable")
     sources.add_argument(
         "--auto",
@@ -202,8 +234,7 @@ def _overrides(args: argparse.Namespace) -> dict[str, str]:
 
 def _load_config(args: argparse.Namespace) -> Config:
     config = Config.load(args.config)
-    for key, value in _overrides(args).items():
-        config.set(key, value)
+    config.update(_overrides(args))
     return config.validate()
 
 
@@ -348,6 +379,14 @@ def cmd_status(args: argparse.Namespace) -> int:
     width = max(len(str(name)) for name, _ in rows)
     for name, value in rows:
         print(f"{name:<{width}}  {value}")
+    detail = data.get("source_detail") or {}
+    if detail.get("url"):
+        print(f"{'sender page':<{width}}  {detail['url']}")
+        seen = detail.get("seconds_since_sample")
+        phone = "no phone has sent anything yet" if seen is None else f"last reading {seen}s ago"
+        if detail.get("rejected"):
+            phone += f"; {detail['rejected']} rejected ({detail.get('last_error', '')})"
+        print(f"{'phone':<{width}}  {phone}")
     if data.get("source_error"):
         print(_paint(f"{'source error':<{width}}  {data['source_error']}", Level.FAIL))
     return 0
@@ -369,6 +408,203 @@ def cmd_preview(args: argparse.Namespace) -> int:
     )
     print(f"wrote {written}")
     return 0
+
+
+def _step(number: int, text: str) -> None:
+    print(f"  {number}. {text}")
+
+
+def _pair_url(config: Config, address: str) -> str:
+    phone = config.motion.phone
+    scheme = "https" if phone.tls_cert else "http"
+    suffix = f"/?t={phone.token}" if phone.token else "/"
+    return f"{scheme}://{address}:{phone.port}{suffix}"
+
+
+def _apply_pairing(args: argparse.Namespace, settings: dict[str, str]) -> Config:
+    """Write the phone settings and nudge a running daemon to pick them up."""
+    config = Config.load(args.config)
+    config.update(settings)
+    config.save(args.config or config_file())
+    if is_running():
+        try:
+            request("reload")
+        except (DaemonUnavailableError, RuntimeError) as exc:
+            print(f"note: could not reload the running daemon: {exc}", file=sys.stderr)
+    return config
+
+
+def _pair_usb(args: argparse.Namespace, adb: str, device: PairDevice, port: int) -> int:
+    from motionless.pair import adb_reverse
+
+    adb_reverse(adb, port, serial=device.serial)
+    config = _apply_pairing(
+        args,
+        {
+            "motion.source": "phone",
+            "motion.phone.host": "127.0.0.1",
+            "motion.phone.port": str(port),
+            "motion.phone.token": "",
+            "motion.phone.tls_cert": "",
+            "motion.phone.tls_key": "",
+        },
+    )
+    url = _pair_url(config, "localhost")
+    print(f"Paired over USB with {device.serial}.")
+    print()
+    print("On the phone:")
+    _step(1, f"open Chrome and go to  {url}")
+    _step(2, 'tap "Start sending motion"')
+    _step(3, "wedge the phone somewhere fixed — a cradle or a cup holder")
+    print()
+    print("The cable carries the readings, so this works with no network at all.")
+    print("Re-run `motionless pair` after unplugging: the forward does not survive it.")
+    return _pair_epilogue()
+
+
+def _pair_wifi(args: argparse.Namespace, port: int, reason: str) -> int:
+    from motionless.pair import PairError, ensure_certificate, local_addresses, new_token, qr_code
+
+    addresses = [args.address] if args.address else local_addresses()
+    if not addresses:
+        return _fail(
+            "this machine has no local network address",
+            "join the same Wi-Fi as the phone, or pair over USB with `motionless pair --usb`",
+        )
+    try:
+        cert, key = ensure_certificate(addresses)
+    except PairError as exc:
+        return _fail(str(exc))
+
+    token = new_token()
+    config = _apply_pairing(
+        args,
+        {
+            "motion.source": "phone",
+            "motion.phone.host": "0.0.0.0",
+            "motion.phone.port": str(port),
+            "motion.phone.token": token,
+            "motion.phone.tls_cert": str(cert),
+            "motion.phone.tls_key": str(key),
+        },
+    )
+    url = _pair_url(config, addresses[0])
+    if reason:
+        print(reason)
+        print()
+    print("Paired over Wi-Fi. The phone must be on the same network as this machine.")
+    print()
+    print("On the phone:")
+    _step(1, f"open the browser and go to  {url}")
+    _step(2, 'accept the certificate warning — iOS: "Show Details" → "visit this website"')
+    _step(3, 'tap "Start sending motion"')
+    _step(4, "wedge the phone somewhere fixed — a cradle or a cup holder")
+    if len(addresses) > 1:
+        print()
+        print("Other addresses this machine answers on, if the first does not work:")
+        for address in addresses[1:]:
+            print(f"    {_pair_url(config, address)}")
+    print()
+    print("The certificate is self-signed and generated on this machine: no authority")
+    print("will vouch for a private address, so the warning is expected, not a fault.")
+    if not args.no_qr:
+        code = qr_code(url)
+        if code:
+            print()
+            print(code, end="")
+        else:
+            print()
+            print("Install `qrencode` to get a scannable QR code here instead of a URL.")
+    return _pair_epilogue()
+
+
+def _pair_epilogue() -> int:
+    if is_running():
+        print()
+        print("The running overlay has picked up the change.")
+    else:
+        print()
+        print("Start the overlay when you are ready:  motionless start")
+    return 0
+
+
+def cmd_pair(args: argparse.Namespace) -> int:
+    from motionless.pair import PairError, adb_devices, find_adb
+
+    config = Config.load(args.config)
+    port = args.port or config.motion.phone.port
+
+    if args.show:
+        phone = config.motion.phone
+        if config.motion.source != "phone":
+            return _fail(
+                f"motion.source is {config.motion.source!r}, not 'phone'",
+                "run `motionless pair` to connect one",
+            )
+        addresses = ["localhost"] if phone.host in ("127.0.0.1", "::1") else None
+        if addresses is None:
+            from motionless.pair import local_addresses
+
+            addresses = local_addresses() or ["localhost"]
+        for address in addresses:
+            print(_pair_url(config, address))
+        return 0
+
+    mode = args.mode
+    adb = find_adb()
+    device = None
+    reason = ""
+    if mode != "wifi":
+        if adb is None:
+            reason = "No `adb` here, so the USB path is not available."
+            if mode == "usb":
+                return _fail(
+                    "adb is not installed",
+                    "`sudo apt install adb`, or pair over Wi-Fi with `motionless pair --wifi`",
+                )
+        else:
+            try:
+                attached = adb_devices(adb)
+            except PairError as exc:
+                if mode == "usb":
+                    return _fail(str(exc))
+                attached, reason = [], f"adb could not list devices ({exc}), so: Wi-Fi."
+            ready = [d for d in attached if d.ready]
+            unauthorised = [d for d in attached if d.state == "unauthorized"]
+            if not ready and unauthorised and mode == "usb":
+                # A very common state, and the generic advice sends people to
+                # settings they have already changed.
+                return _fail(
+                    f"{unauthorised[0].serial} is connected but has not authorised this computer",
+                    'unlock the phone and tap "Allow" on the USB debugging prompt, '
+                    "then run `motionless pair` again",
+                )
+            if len(ready) == 1:
+                device = ready[0]
+            elif mode == "usb":
+                return _fail(
+                    "no phone is connected with USB debugging enabled"
+                    if not ready
+                    else f"{len(ready)} devices connected; disconnect all but one",
+                    "on the phone: Settings > About phone > tap Build number seven times, "
+                    "then Settings > Developer options > USB debugging, then accept the "
+                    "prompt when you plug the cable in",
+                )
+            elif not ready:
+                reason = (
+                    "No Android phone with USB debugging is plugged in, so: Wi-Fi.\n"
+                    "(USB is steadier and needs no certificate — `motionless pair --usb` "
+                    "explains how to enable it.)"
+                )
+            else:
+                reason = f"{len(ready)} phones are plugged in, so: Wi-Fi."
+
+    try:
+        if device is not None and adb is not None:
+            return _pair_usb(args, adb, device, port)
+        return _pair_wifi(args, port, reason)
+    except PairError as exc:
+        return _fail(str(exc))
 
 
 def cmd_sources(args: argparse.Namespace) -> int:
@@ -393,7 +629,7 @@ def cmd_sources(args: argparse.Namespace) -> int:
     print()
     if chosen == "none":
         print("Auto-detection finds no sensor on this machine, so no cues will appear.")
-        print("Stream from a phone instead: `motionless config set motion.source udp`.")
+        print("Use your phone as the sensor instead — no app to install: `motionless pair`.")
     else:
         print(f"Auto-detection would use: {chosen}")
         print("Override with `motionless config set motion.source <name>`.")
@@ -511,6 +747,7 @@ _HANDLERS = {
     "reload": cmd_reload,
     "status": cmd_status,
     "preview": cmd_preview,
+    "pair": cmd_pair,
     "sources": cmd_sources,
     "doctor": cmd_doctor,
     "config": cmd_config,
@@ -532,7 +769,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 130
     except (ConfigError, UnknownSourceError) as exc:
         return _fail(str(exc), "see `motionless config keys` for valid settings")
-    except ServiceError as exc:
+    except (ServiceError, PairError) as exc:
         return _fail(str(exc))
     except DaemonUnavailableError as exc:
         return _fail(str(exc), "start it with `motionless start`")

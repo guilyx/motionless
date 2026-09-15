@@ -353,3 +353,149 @@ class TestServiceCommand:
         monkeypatch.setattr(cli, "service_install", refuse)
         assert cli.main(["service", "install"]) == 1
         assert "systemctl not found" in capsys.readouterr().err
+
+
+class TestPair:
+    """`motionless pair` — the command that makes a phone the sensor."""
+
+    @pytest.fixture
+    def android(self, monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str]]:
+        """A single Android phone, plugged in, with USB debugging accepted."""
+        from motionless import pair as pair_module
+
+        reversed_ports: list[tuple[int, str]] = []
+        monkeypatch.setattr(pair_module, "find_adb", lambda: "/usr/bin/adb")
+        monkeypatch.setattr(cli, "find_adb", lambda: "/usr/bin/adb", raising=False)
+        monkeypatch.setattr(
+            pair_module, "adb_devices", lambda _adb: [pair_module.AdbDevice("R58M1234", "device")]
+        )
+        monkeypatch.setattr(
+            pair_module,
+            "adb_reverse",
+            lambda _adb, port, serial="": reversed_ports.append((port, serial)),
+        )
+        return reversed_ports
+
+    def test_usb_forwards_the_port_and_points_the_phone_at_localhost(
+        self,
+        android: list[tuple[int, str]],
+        no_daemon: None,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        assert cli.main(["pair"]) == 0
+        out = capsys.readouterr().out
+        assert android == [(5577, "R58M1234")]
+        assert "http://localhost:5577/" in out
+        # No certificate and no token: localhost is already a secure context.
+        config = Config.load()
+        assert config.motion.source == "phone"
+        assert config.motion.phone.host == "127.0.0.1"
+        assert config.motion.phone.token == ""
+        assert config.motion.phone.tls_cert == ""
+
+    def test_usb_without_adb_says_what_to_install(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from motionless import pair as pair_module
+
+        monkeypatch.setattr(pair_module, "find_adb", lambda: None)
+        assert cli.main(["pair", "--usb"]) == 1
+        assert "adb is not installed" in capsys.readouterr().err
+
+    def test_usb_with_an_unauthorised_phone_names_the_actual_problem(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # The generic "turn on USB debugging" advice sends people to a setting
+        # they have already changed; this state needs its own answer.
+        from motionless import pair as pair_module
+
+        monkeypatch.setattr(pair_module, "find_adb", lambda: "/usr/bin/adb")
+        monkeypatch.setattr(
+            pair_module,
+            "adb_devices",
+            lambda _adb: [pair_module.AdbDevice("R58M1234", "unauthorized")],
+        )
+        assert cli.main(["pair", "--usb"]) == 1
+        err = capsys.readouterr().err
+        assert "has not authorised this computer" in err
+        assert "Allow" in err
+
+    def test_wifi_writes_a_token_and_a_certificate(
+        self, monkeypatch: pytest.MonkeyPatch, no_daemon: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from motionless import pair as pair_module
+
+        monkeypatch.setattr(pair_module, "local_addresses", lambda: ["192.168.1.37"])
+        monkeypatch.setattr(
+            pair_module, "ensure_certificate", lambda _a: (Path("/c/cert.pem"), Path("/c/key.pem"))
+        )
+        monkeypatch.setattr(pair_module, "qr_code", lambda _url: None)
+        assert cli.main(["pair", "--wifi"]) == 0
+        out = capsys.readouterr().out
+
+        config = Config.load()
+        assert config.motion.phone.host == "0.0.0.0"
+        assert config.motion.phone.token, "a network bind without a token is not acceptable"
+        assert config.motion.phone.tls_cert == "/c/cert.pem"
+        assert f"https://192.168.1.37:5577/?t={config.motion.phone.token}" in out
+        assert "certificate warning" in out
+
+    def test_wifi_without_a_network_says_so_rather_than_printing_a_dead_url(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from motionless import pair as pair_module
+
+        monkeypatch.setattr(pair_module, "local_addresses", lambda: [])
+        assert cli.main(["pair", "--wifi"]) == 1
+        assert "no local network address" in capsys.readouterr().err
+
+    def test_no_phone_plugged_in_falls_back_to_wifi_and_explains_why(
+        self, monkeypatch: pytest.MonkeyPatch, no_daemon: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from motionless import pair as pair_module
+
+        monkeypatch.setattr(pair_module, "find_adb", lambda: "/usr/bin/adb")
+        monkeypatch.setattr(pair_module, "adb_devices", lambda _adb: [])
+        monkeypatch.setattr(pair_module, "local_addresses", lambda: ["192.168.1.37"])
+        monkeypatch.setattr(
+            pair_module, "ensure_certificate", lambda _a: (Path("/c/cert.pem"), Path("/c/key.pem"))
+        )
+        monkeypatch.setattr(pair_module, "qr_code", lambda _url: None)
+        assert cli.main(["pair"]) == 0
+        assert "so: Wi-Fi" in capsys.readouterr().out
+
+    def test_show_reprints_the_url_without_changing_anything(
+        self,
+        android: list[tuple[int, str]],
+        no_daemon: None,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        cli.main(["pair"])
+        capsys.readouterr()
+        before = config_file().read_text()
+        assert cli.main(["pair", "--show"]) == 0
+        assert capsys.readouterr().out.strip() == "http://localhost:5577/"
+        assert config_file().read_text() == before
+
+    def test_show_before_any_pairing_says_so(
+        self, no_daemon: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.main(["pair", "--show"]) == 1
+        assert "not 'phone'" in capsys.readouterr().err
+
+    def test_a_running_daemon_is_told_to_reload(
+        self, android: list[tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Otherwise pairing appears to do nothing until the user restarts.
+        seen: list[str] = []
+        monkeypatch.setattr(cli, "is_running", lambda *_a, **_k: True)
+        monkeypatch.setattr(cli, "request", lambda command, **_k: seen.append(command) or {})
+        assert cli.main(["pair"]) == 0
+        assert "reload" in seen
+
+    def test_the_port_can_be_overridden(
+        self, android: list[tuple[int, str]], no_daemon: None
+    ) -> None:
+        assert cli.main(["pair", "--port", "6000"]) == 0
+        assert android == [(6000, "R58M1234")]
+        assert Config.load().motion.phone.port == 6000

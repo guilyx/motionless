@@ -104,6 +104,12 @@ def request(
     try:
         connection.sendall(encode({"command": command, "args": args}))
         response = decode(_read_line(connection))
+    except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError) as exc:
+        # Accepted, then dropped: a daemon shutting down between our connect()
+        # and its reply. Indistinguishable, from here, from one that was never
+        # there — and callers like is_running() must see it as the same thing,
+        # or `motionless restart` blows up on its own predecessor.
+        raise DaemonUnavailableError(f"daemon at {target} closed the connection") from exc
     finally:
         connection.close()
 

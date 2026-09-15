@@ -122,7 +122,7 @@ class TestOther:
         chosen = next(c for c in check_sources() if c.name == "Auto-detected source")
         assert chosen.level is Level.WARN
         assert "no cues will appear" in chosen.detail
-        assert "udp" in chosen.hint
+        assert "motionless pair" in chosen.hint
 
     def test_a_stopped_daemon_is_a_warning_not_a_failure(self) -> None:
         check = check_daemon()[0]
