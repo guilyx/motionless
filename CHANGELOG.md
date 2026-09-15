@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- The installer no longer prints the package manager's output. `apt-get update`
+  alone is around sixty lines of repository chatter that says nothing about
+  whether the install is going well. Long steps now show a single line with a
+  spinner and an elapsed counter, replaced by a tick when they finish.
+  Output is captured rather than discarded: a step that fails prints
+  everything it produced, so nothing is hidden at the moment it matters.
+  Without a terminal — piped, or in CI — it degrades to plain lines.
+
 ### Added
 - `motionless sources` now names the source auto-detection would choose, and
   `--auto` prints just that name for scripts. The installer uses it to say,

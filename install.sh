@@ -39,7 +39,11 @@ main() {
     return 0
   fi
 
-  info "Installing motionless"
+  if is_tty; then
+    printf '\n\033[1mmotionless\033[0m \033[2m— vehicle motion cues for Linux\033[0m\n\n'
+  else
+    echo "motionless — vehicle motion cues for Linux"
+  fi
   require_linux
   require_python
 
@@ -62,6 +66,78 @@ err()   { printf '\033[1;31m ✘\033[0m %s\n' "$*" >&2; }
 die()   { err "$*"; exit 1; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+is_tty() { [ -t 1 ]; }
+
+SPINNER_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+SPINNER_PID=""
+
+# Restore the cursor and clean up a half-drawn line whichever way we leave.
+spinner_cleanup() {
+  # Only erase a line if one was actually being drawn on; otherwise this would
+  # clear whatever the script legitimately printed last.
+  if [ -n "$SPINNER_PID" ]; then
+    kill "$SPINNER_PID" 2>/dev/null || true
+    SPINNER_PID=""
+    if is_tty; then printf '\r\033[2K'; fi
+  fi
+  if is_tty; then printf '\033[?25h'; fi
+}
+trap spinner_cleanup EXIT INT TERM
+
+# Run a command quietly behind a one-line progress indicator.
+#
+# Output is captured, not discarded: on failure the whole log is printed, so
+# nothing that went wrong is ever hidden. Without a terminal — piped output, a
+# CI log — it degrades to a plain line and no animation.
+#
+# Never wrap something that may prompt. A password prompt drawn over by a
+# spinner is invisible, which is the failure this installer already had once.
+run_step() {
+  local message="$1"
+  shift
+  local log status=0 started elapsed
+  log="$(mktemp -t motionless-step-XXXXXX.log)"
+  started="$SECONDS"
+
+  if ! is_tty; then
+    info "$message"
+    "$@" >"$log" 2>&1 || status=$?
+  else
+    "$@" >"$log" 2>&1 &
+    SPINNER_PID=$!
+    printf '\033[?25l'
+    local index=0
+    while kill -0 "$SPINNER_PID" 2>/dev/null; do
+      elapsed=$((SECONDS - started))
+      printf '\r\033[2K\033[1;34m %s\033[0m %s\033[2m  %ds\033[0m' \
+        "${SPINNER_FRAMES[index % ${#SPINNER_FRAMES[@]}]}" "$message" "$elapsed"
+      index=$((index + 1))
+      sleep 0.1
+    done
+    wait "$SPINNER_PID" || status=$?
+    SPINNER_PID=""
+    printf '\r\033[2K\033[?25h'
+  fi
+
+  elapsed=$((SECONDS - started))
+  if [ "$status" -eq 0 ]; then
+    if [ "$elapsed" -ge 3 ]; then
+      ok "$message  ($(printf '%ds' "$elapsed"))"
+    else
+      ok "$message"
+    fi
+    rm -f "$log"
+    return 0
+  fi
+
+  err "$message — failed"
+  echo >&2
+  sed 's/^/    /' "$log" >&2
+  echo >&2
+  rm -f "$log"
+  return "$status"
+}
 
 usage() {
   cat <<'USAGE'
@@ -111,6 +187,21 @@ run_root() {
     prime_sudo
     sudo "$@"
   fi
+}
+
+# As run_root, but never prompts. Safe to call from inside run_step, where a
+# password prompt would be drawn over by the spinner and hang invisibly.
+# prime_sudo must have been called first, outside the spinner.
+run_root_quiet() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+    return
+  fi
+  # Check the credentials separately, so the command's own exit status reaches
+  # the caller unchanged. Folding the two together would report a package
+  # manager's failure as a sudo problem.
+  sudo -n true 2>/dev/null || die "sudo credentials expired; re-run the installer"
+  sudo -n "$@"
 }
 
 # --------------------------------------------------------------- preflight
@@ -175,22 +266,35 @@ install_system_deps() {
     return 0
   fi
 
+  # Outside run_step: the password prompt must be visible, not behind a spinner.
   prime_sudo
+
+  local count
+  count="$(printf '%s' "$packages" | wc -w)"
 
   # shellcheck disable=SC2086  # $packages is a deliberate word list
   case "$manager" in
     apt)
-      info "updating package lists"
-      run_root env DEBIAN_FRONTEND=noninteractive apt-get update -q </dev/null
-      info "installing packages"
-      run_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+      run_step "Refreshing package lists" \
+        run_root_quiet env DEBIAN_FRONTEND=noninteractive \
+        apt-get update -q </dev/null
+      run_step "Installing $count system packages" \
+        run_root_quiet env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
         apt-get install -y $packages </dev/null
       ;;
-    dnf)    run_root dnf install -y $packages </dev/null ;;
-    pacman) run_root pacman -S --needed --noconfirm $packages </dev/null ;;
-    zypper) run_root zypper install -y $packages </dev/null ;;
+    dnf)
+      run_step "Installing $count system packages" \
+        run_root_quiet dnf install -y $packages </dev/null
+      ;;
+    pacman)
+      run_step "Installing $count system packages" \
+        run_root_quiet pacman -S --needed --noconfirm $packages </dev/null
+      ;;
+    zypper)
+      run_step "Installing $count system packages" \
+        run_root_quiet zypper install -y $packages </dev/null
+      ;;
   esac
-  ok "system packages installed"
 }
 
 # -------------------------------------------------------------- the package
@@ -249,18 +353,18 @@ install_package() {
 
   local target
   target="$(MOTIONLESS_SOURCE="$source" install_target)"
-  info "Installing $target"
 
-  if ! "$installer" "$target"; then
+  if ! run_step "Installing motionless" "$installer" "$target"; then
     if [ "$source" = "pypi" ]; then
-      warn "install from PyPI failed; falling back to the git repository"
-      "$installer" "$(MOTIONLESS_SOURCE=git install_target)" || die "installation failed"
+      warn "falling back to the git repository"
+      run_step "Installing motionless from source" \
+        "$installer" "$(MOTIONLESS_SOURCE=git install_target)" \
+        || die "installation failed"
     else
       die "installation failed"
     fi
   fi
   if has pipx; then pipx ensurepath >/dev/null 2>&1 || true; fi
-  ok "motionless installed"
 }
 
 post_install() {
