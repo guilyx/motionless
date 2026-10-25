@@ -147,27 +147,84 @@ def primary_address() -> str | None:
     return None if address.startswith("127.") else address
 
 
+# Interfaces a phone on the local network cannot reach us through: container
+# bridges, VM bridges, and VPN/overlay tunnels. Their addresses still carry
+# "scope global", so they have to be recognised by name.
+_UNREACHABLE_PREFIXES = (
+    "docker",
+    "br-",
+    "virbr",
+    "veth",
+    "lxcbr",
+    "tun",
+    "tap",
+    "wg",
+    "zt",
+    "tailscale",
+    "ppp",
+)
+
+
+def _interface_rank(name: str) -> int:
+    """Lower sorts first: real LAN links, then unknowns, then bridges/tunnels."""
+    if name.startswith(_UNREACHABLE_PREFIXES):
+        return 2
+    # Wireless and wired links under both predictable (wlp/enp) and classic
+    # (wlan/eth) naming — the ones a phone on the same Wi-Fi can actually reach.
+    if name.startswith(("wl", "en", "eth")):
+        return 0
+    return 1
+
+
+def _addresses_by_interface() -> list[tuple[str, str]]:
+    """(interface, address) for every global IPv4, in `ip` order."""
+    if not shutil.which("ip"):
+        return []
+    try:
+        output = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show", "scope", "global"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):  # pragma: no cover - ip is odd here
+        return []
+    pairs: list[tuple[str, str]] = []
+    for match in re.finditer(r"^\d+:\s+(\S+)\s+inet (\d+\.\d+\.\d+\.\d+)/", output, re.M):
+        pairs.append((match.group(1), match.group(2)))
+    return pairs
+
+
 def local_addresses() -> list[str]:
-    """Every plausible LAN address, best guess first."""
+    """Every plausible LAN address, best guess first.
+
+    The phone reaches this machine over the local network, so a Wi-Fi or
+    Ethernet address must come first. `primary_address()` alone is not that
+    address: it asks the routing table, and a connected VPN owns the default
+    route, so it answers with the tunnel address the phone cannot reach.
+    Likewise a docker0 bridge is "scope global" but unreachable from outside.
+    Rank by interface kind, and fall back to the routing-table guess only when
+    `ip` tells us nothing.
+    """
+    pairs = [
+        (name, address)
+        for name, address in _addresses_by_interface()
+        if not address.startswith(("127.", "169.254."))
+    ]
+    # Stable sort: keeps `ip` ordering within each rank.
+    pairs.sort(key=lambda pair: _interface_rank(pair[0]))
+
     found: list[str] = []
+    for _name, address in pairs:
+        if address not in found:
+            found.append(address)
+
     primary = primary_address()
-    if primary:
+    if primary and primary not in found:
+        # Unlisted by `ip`, or `ip` is missing entirely. Better than nothing,
+        # but it does not get to displace an address from a real LAN link.
         found.append(primary)
-    if shutil.which("ip"):
-        try:
-            output = subprocess.run(
-                ["ip", "-o", "-4", "addr", "show", "scope", "global"],
-                capture_output=True,
-                text=True,
-                timeout=5.0,
-                check=False,
-            ).stdout
-        except (OSError, subprocess.TimeoutExpired):  # pragma: no cover - ip is odd here
-            output = ""
-        for match in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)/", output):
-            address = match.group(1)
-            if address not in found and not address.startswith(("127.", "169.254.")):
-                found.append(address)
     return found
 
 
