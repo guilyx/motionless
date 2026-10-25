@@ -78,9 +78,18 @@ class OverlayWindow(Gtk.Window):
         else:
             self._setup_x11(monitor)
 
+        # Click-through, set at the *widget* level on purpose. Setting it on the
+        # GdkWindow from a "realize" handler does not survive: gtk_widget_realize()
+        # emits "realize" and then calls gtk_widget_update_input_shape(), which
+        # finds no widget-level shape and resets the window's input region to
+        # NULL — i.e. "accept all pointer events". GtkWidget re-applies a
+        # widget-level region for us, which is exactly what this API is for.
+        self.input_shape_combine_region(cairo.Region())
+
         self.connect("realize", self._on_realize)
         self.connect("draw", self._on_draw)
         self.connect("screen-changed", self._on_screen_changed)
+        self.connect("map", self._on_map)
 
     # ------------------------------------------------------------- placement
 
@@ -113,15 +122,19 @@ class OverlayWindow(Gtk.Window):
         surface = self.get_window()
         if surface is None:  # pragma: no cover - realize always provides one
             return
-        # An empty input region is what makes clicks land on whatever is
-        # underneath. set_pass_through covers the same ground on newer GDK and
-        # on Wayland, so we do both and let the backend use what it supports.
-        surface.input_shape_combine_region(cairo.Region(), 0, 0)
-        if hasattr(surface, "set_pass_through"):
-            surface.set_pass_through(True)
         if not self._layer_shell:
             self.set_keep_above(True)
             surface.set_keep_above(True)
+
+    def _on_map(self, _widget: Gtk.Widget) -> None:
+        # On Wayland GTK destroys the wl_surface when the window is hidden and
+        # builds a new one on show, without re-sending the input region — and it
+        # considers the region already in sync, so nothing marks it dirty. A
+        # hidden-then-shown overlay (`motionless toggle`, `hide`/`show`) would
+        # start swallowing clicks again. Re-assert it on every map.
+        surface = self.get_window()
+        if surface is not None:
+            surface.input_shape_combine_region(cairo.Region(), 0, 0)
 
     # -------------------------------------------------------------- painting
 
